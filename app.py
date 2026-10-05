@@ -1,6 +1,7 @@
 import streamlit as st
 from openai import OpenAI
 from supabase import create_client
+import json
 
 
 # ==================================================
@@ -15,10 +16,12 @@ st.set_page_config(
 
 st.title("🧠 ZEROBOARD AI")
 st.caption("AI経営会議システム")
+
 st.write(
     "あなたがCEO。4人のAI役員が議論し、"
     "最後に議長AIが経営判断をまとめます。"
 )
+
 st.divider()
 
 
@@ -51,24 +54,31 @@ if "meeting_result" not in st.session_state:
 if "last_topic" not in st.session_state:
     st.session_state.last_topic = ""
 
+if "used_memories" not in st.session_state:
+    st.session_state.used_memories = []
+
 
 # ==================================================
-# Supabaseから過去の会議を読み込む
+# Supabaseから過去会議を読み込む
 # ==================================================
 
-def load_meeting_history():
+def load_meeting_history(limit=None):
 
     try:
 
-        response = (
+        query = (
             supabase
             .table("meeting_history")
             .select("id, created_at, topic, final")
             .order("created_at", desc=True)
-            .execute()
         )
 
-        return response.data
+        if limit:
+            query = query.limit(limit)
+
+        response = query.execute()
+
+        return response.data or []
 
     except Exception as db_error:
 
@@ -90,7 +100,7 @@ def save_meeting(topic, final):
 
     try:
 
-        response = (
+        (
             supabase
             .table("meeting_history")
             .insert(
@@ -117,17 +127,187 @@ def save_meeting(topic, final):
 
 
 # ==================================================
+# 過去会議から関連記憶を選ぶ
+# ==================================================
+
+def select_relevant_memories(current_topic):
+
+    # Ver.1では直近20件を候補にする
+    history = load_meeting_history(limit=20)
+
+    if not history:
+        return []
+
+    memory_list = []
+
+    for meeting in history:
+
+        memory_list.append(
+            {
+                "id": meeting.get("id"),
+                "topic": meeting.get("topic", ""),
+                "final": meeting.get("final", "")
+            }
+        )
+
+    selector_prompt = f"""
+あなたはZEROBOARD AIの記憶管理AIです。
+
+今回のCEOの議題と、
+過去のAI経営会議を比較してください。
+
+今回の議題を考えるうえで
+本当に参考になる過去会議だけを選んでください。
+
+最大3件です。
+
+関連性が低い場合は、
+無理に選ばず0件でも構いません。
+
+
+【今回の議題】
+
+{current_topic}
+
+
+【過去の会議】
+
+{json.dumps(memory_list, ensure_ascii=False)}
+
+
+回答は必ずJSON配列だけにしてください。
+
+例：
+
+[10, 7, 3]
+
+関連する記憶がない場合：
+
+[]
+
+説明文やMarkdownは一切付けないでください。
+"""
+
+    try:
+
+        response = client.responses.create(
+            model="gpt-5-mini",
+            input=selector_prompt
+        )
+
+        raw = response.output_text.strip()
+
+        # ```json ... ``` が返った場合にも対応
+        raw = raw.replace("```json", "")
+        raw = raw.replace("```", "")
+        raw = raw.strip()
+
+        selected_ids = json.loads(raw)
+
+        if not isinstance(selected_ids, list):
+            return []
+
+        # 最大3件まで
+        selected_ids = selected_ids[:3]
+
+        selected_memories = []
+
+        for meeting in history:
+
+            if meeting.get("id") in selected_ids:
+
+                selected_memories.append(meeting)
+
+        return selected_memories
+
+    except Exception:
+
+        # 記憶選択に失敗しても
+        # 本体の経営会議は止めない
+        return []
+
+
+# ==================================================
+# AI役員へ渡す記憶文章を作る
+# ==================================================
+
+def build_memory_context(memories):
+
+    if not memories:
+
+        return """
+【過去のZEROBOARD記憶】
+
+今回の議題に直接関連する
+過去の経営会議は見つかりませんでした。
+
+過去の判断に無理に合わせず、
+今回の情報を基準に判断してください。
+"""
+
+    blocks = []
+
+    for memory in memories:
+
+        blocks.append(
+            f"""
+--------------------
+
+過去会議ID：
+{memory.get("id")}
+
+過去の議題：
+{memory.get("topic", "")}
+
+過去の最終経営判断：
+{memory.get("final", "")}
+
+--------------------
+"""
+        )
+
+    return """
+【ZEROBOARD 長期記憶】
+
+以下は今回の議題に関連すると判断された
+過去のAI経営会議です。
+
+過去の判断を絶対視する必要はありません。
+
+ただし、
+
+・以前決めた方針
+・以前指摘されたリスク
+・過去の数字
+・以前のアクションプラン
+・今回と矛盾する判断
+
+があれば考慮してください。
+
+今回の状況の方が合理的なら、
+過去の判断を修正して構いません。
+
+
+""" + "\n".join(blocks)
+
+
+# ==================================================
 # AIに質問する関数
 # ==================================================
 
-def ask_ai(role, meeting_topic):
+def ask_ai(role, meeting_topic, memory_context=""):
 
     response = client.responses.create(
         model="gpt-5-mini",
         instructions=role,
         input=f"""
 経営会議の議題：
+
 {meeting_topic}
+
+
+{memory_context}
+
 
 日本語で回答してください。
 
@@ -135,6 +315,12 @@ def ask_ai(role, meeting_topic):
 
 結論だけでなく、
 その理由も簡潔に説明してください。
+
+過去のZEROBOARD記憶がある場合は、
+必要に応じてその内容も考慮してください。
+
+ただし、
+過去の判断を盲目的に踏襲してはいけません。
 """
     )
 
@@ -147,7 +333,10 @@ def ask_ai(role, meeting_topic):
 
 topic = st.text_area(
     "CEO、今日の議題を入力してください",
-    placeholder="例：AIを使って月10万円の利益を作れる新規事業を考える",
+    placeholder=(
+        "例：以前考えたAI副業を"
+        "月10万円まで伸ばすには？"
+    ),
     height=120
 )
 
@@ -172,6 +361,29 @@ if st.button(
         try:
 
             # ==========================================
+            # 関連記憶を検索
+            # ==========================================
+
+            with st.spinner(
+                "🧠 ZEROBOARDが過去の記憶を検索中..."
+            ):
+
+                relevant_memories = (
+                    select_relevant_memories(topic)
+                )
+
+                memory_context = (
+                    build_memory_context(
+                        relevant_memories
+                    )
+                )
+
+                st.session_state.used_memories = (
+                    relevant_memories
+                )
+
+
+            # ==========================================
             # 第1ラウンド
             # ==========================================
 
@@ -181,7 +393,8 @@ if st.button(
 
                 strategy = ask_ai(
                     """
-あなたはZEROBOARD AIの戦略担当役員です。
+あなたはZEROBOARD AIの
+戦略担当役員です。
 
 市場機会、
 競争優位、
@@ -190,9 +403,15 @@ if st.button(
 
 の観点から
 CEOの議題を分析してください。
+
+過去のZEROBOARD記憶がある場合、
+以前の経営判断との連続性や
+方針変更の必要性も考えてください。
 """,
-                    topic
+                    topic,
+                    memory_context
                 )
+
 
                 marketing = ask_ai(
                     """
@@ -207,13 +426,20 @@ CEOの議題を分析してください。
 
 の観点から
 CEOの議題を分析してください。
+
+過去のZEROBOARD記憶がある場合、
+以前の顧客戦略や集客方針も
+必要に応じて考慮してください。
 """,
-                    topic
+                    topic,
+                    memory_context
                 )
+
 
                 finance = ask_ai(
                     """
-あなたはZEROBOARD AIの財務担当役員です。
+あなたはZEROBOARD AIの
+財務担当役員です。
 
 必要資金、
 売上、
@@ -226,9 +452,16 @@ CEOの議題を分析してください。
 
 数字を使えるところは
 具体的に示してください。
+
+過去のZEROBOARD記憶に
+以前の売上目標や費用、
+利益計画などが存在する場合は、
+今回との整合性も確認してください。
 """,
-                    topic
+                    topic,
+                    memory_context
                 )
+
 
                 risk = ask_ai(
                     """
@@ -242,8 +475,14 @@ CEOの議題を分析してください。
 見落としやすい点
 
 を厳しく分析してください。
+
+過去のZEROBOARD記憶に
+以前指摘されたリスクがある場合、
+それが解決されたかどうかも
+考えてください。
 """,
-                    topic
+                    topic,
+                    memory_context
                 )
 
 
@@ -253,7 +492,18 @@ CEOの議題を分析してください。
 
             first_round = f"""
 CEOの議題：
+
 {topic}
+
+
+{memory_context}
+
+
+====================
+
+【第1ラウンド】
+
+====================
 
 
 【戦略担当役員】
@@ -298,6 +548,7 @@ CEOの議題：
 
 ・賛成する意見
 ・反対または修正したい意見
+・過去の判断との整合性
 ・その理由
 ・第1ラウンドから修正した最終提案
 
@@ -305,6 +556,7 @@ CEOの議題：
 """,
                     first_round
                 )
+
 
                 marketing_round2 = ask_ai(
                     """
@@ -317,13 +569,15 @@ CEOの議題：
 
 ・賛成する意見
 ・反対または修正したい意見
-・市場・集客面から見た理由
+・市場、顧客、集客面から見た理由
+・過去の判断との整合性
 ・修正した最終提案
 
 を具体的に述べてください。
 """,
                     first_round
                 )
+
 
                 finance_round2 = ask_ai(
                     """
@@ -337,12 +591,14 @@ CEOの議題：
 ・賛成する意見
 ・数字的に問題のある意見
 ・利益、費用、回収期間から見た理由
+・過去の財務判断との整合性
 ・修正した最終提案
 
 を具体的に述べてください。
 """,
                     first_round
                 )
+
 
                 risk_round2 = ask_ai(
                     """
@@ -355,6 +611,7 @@ CEOの議題：
 
 ・賛成する意見
 ・危険だと思う意見
+・過去に指摘されたリスク
 ・失敗要因や実行上の問題
 ・リスクを抑えた修正案
 
@@ -375,6 +632,15 @@ CEOの議題：
 CEOの議題：
 
 {topic}
+
+
+====================
+
+【参照されたZEROBOARD記憶】
+
+====================
+
+{memory_context}
 
 
 以下はAI役員による
@@ -438,6 +704,12 @@ CEOの議題：
 これらを統合して、
 CEO向けの最終経営判断を作ってください。
 
+過去のZEROBOARD記憶がある場合は、
+今回の判断との関係も考慮してください。
+
+過去の判断と今回の判断が変わる場合は、
+なぜ変更するのか明確にしてください。
+
 
 必ず以下の形式で回答してください。
 
@@ -447,6 +719,16 @@ CEO向けの最終経営判断を作ってください。
 実行すべきか、
 修正すべきか、
 見送るべきかを説明
+
+
+## 🧠 過去の判断との関係
+
+過去のZEROBOARD記憶を
+どう今回の判断に使ったかを説明
+
+関連記憶がなければ、
+「今回直接参照すべき過去判断なし」
+と記載
 
 
 ## 💡 理由
@@ -482,7 +764,7 @@ Day1〜Day7まで
             # ==========================================
 
             with st.spinner(
-                "議長AIが最終判断を作成中..."
+                "議長AIが記憶と議論を統合中..."
             ):
 
                 final_response = client.responses.create(
@@ -494,7 +776,7 @@ Day1〜Day7まで
 
 
             # ==========================================
-            # 現在の会議結果を保存
+            # セッションへ保存
             # ==========================================
 
             st.session_state.last_topic = topic
@@ -529,10 +811,16 @@ Day1〜Day7まで
             # Supabaseへ永久保存
             # ==========================================
 
-            save_meeting(
+            saved = save_meeting(
                 topic,
                 final
             )
+
+            if saved:
+
+                st.toast(
+                    "🧠 新しい経営判断を長期記憶へ保存しました"
+                )
 
 
         except Exception as e:
@@ -545,6 +833,51 @@ Day1〜Day7まで
             st.code(
                 str(e)
             )
+
+
+# ==================================================
+# 今回参照した記憶
+# ==================================================
+
+if st.session_state.meeting_result:
+
+    st.divider()
+
+    st.header(
+        "🧠 今回参照した過去の記憶"
+    )
+
+    used_memories = (
+        st.session_state.used_memories
+    )
+
+    if used_memories:
+
+        st.success(
+            f"{len(used_memories)}件の"
+            "過去会議を参照しました。"
+        )
+
+        for memory in used_memories:
+
+            with st.expander(
+                f"記憶 #{memory.get('id')}｜"
+                f"{memory.get('topic', '')}"
+            ):
+
+                st.markdown(
+                    memory.get(
+                        "final",
+                        ""
+                    )
+                )
+
+    else:
+
+        st.info(
+            "今回の議題に直接関連する"
+            "過去の会議はありませんでした。"
+        )
 
 
 # ==================================================
@@ -674,7 +1007,7 @@ if st.session_state.meeting_result:
 
 
 # ==================================================
-# Supabaseから過去会議を取得
+# ZEROBOARD MEMORY
 # ==================================================
 
 st.divider()
@@ -697,7 +1030,8 @@ meeting_history = load_meeting_history()
 if meeting_history:
 
     st.success(
-        f"{len(meeting_history)}件の会議記録を読み込みました。"
+        f"{len(meeting_history)}件の"
+        "会議記録を読み込みました。"
     )
 
     for meeting in meeting_history:
