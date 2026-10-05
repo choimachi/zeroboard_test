@@ -473,7 +473,292 @@ def ask_ai(role, meeting_topic, memory_context=""):
 
     return response.output_text
 
+# ==================================================
+# CEO DASHBOARD
+# ==================================================
 
+st.header("📊 CEO DASHBOARD")
+st.caption(
+    "ZEROBOARDが記憶している現在の経営課題"
+)
+
+try:
+
+    dashboard_response = (
+        supabase
+        .table("meeting_history")
+        .select(
+            "id, topic, decision, goal, deadline, "
+            "next_action, result, status"
+        )
+        .order("created_at", desc=True)
+        .execute()
+    )
+
+    dashboard_items = dashboard_response.data or []
+
+except Exception as dashboard_error:
+
+    dashboard_items = []
+
+    st.warning(
+        "CEO DASHBOARDを読み込めませんでした。"
+    )
+
+    st.code(str(dashboard_error))
+
+
+# ==================================================
+# ステータス集計
+# ==================================================
+
+not_started = sum(
+    1
+    for item in dashboard_items
+    if item.get("status") == "未着手"
+)
+
+in_progress = sum(
+    1
+    for item in dashboard_items
+    if item.get("status") == "進行中"
+)
+
+completed = sum(
+    1
+    for item in dashboard_items
+    if item.get("status") == "完了"
+)
+
+
+# ==================================================
+# 上部メトリクス
+# ==================================================
+
+col1, col2, col3 = st.columns(3)
+
+with col1:
+
+    st.metric(
+        "🔴 未着手",
+        not_started
+    )
+
+with col2:
+
+    st.metric(
+        "🟡 進行中",
+        in_progress
+    )
+
+with col3:
+
+    st.metric(
+        "🟢 完了",
+        completed
+    )
+
+
+# ==================================================
+# 未完了の経営課題
+# ==================================================
+
+active_items = [
+    item
+    for item in dashboard_items
+    if item.get("status")
+    in ["未着手", "進行中"]
+]
+
+
+if active_items:
+
+    st.subheader(
+        "🎯 ACTIVE DECISIONS"
+    )
+
+    for item in active_items:
+
+        item_id = item.get("id")
+
+        item_topic = item.get(
+            "topic",
+            "議題なし"
+        )
+
+        decision = item.get(
+            "decision",
+            ""
+        )
+
+        goal = item.get(
+            "goal",
+            ""
+        )
+
+        deadline = item.get(
+            "deadline",
+            ""
+        )
+
+        next_action = item.get(
+            "next_action",
+            ""
+        )
+
+        result = item.get(
+            "result",
+            ""
+        )
+
+        status = item.get(
+            "status",
+            "未着手"
+        )
+
+
+        if status == "進行中":
+
+            status_icon = "🟡"
+
+        else:
+
+            status_icon = "🔴"
+
+
+        with st.expander(
+            f"{status_icon} #{item_id}｜{item_topic}"
+        ):
+
+            if decision:
+
+                st.write(
+                    f"**🎯 決定事項：** {decision}"
+                )
+
+            if goal:
+
+                st.write(
+                    f"**📈 目標：** {goal}"
+                )
+
+            if deadline:
+
+                st.write(
+                    f"**⏰ 期限：** {deadline}"
+                )
+
+            if next_action:
+
+                st.write(
+                    f"**🚀 NEXT ACTION：** "
+                    f"{next_action}"
+                )
+
+            st.divider()
+
+
+            # ======================================
+            # ステータス変更
+            # ======================================
+
+            new_status = st.selectbox(
+                "状態",
+                [
+                    "未着手",
+                    "進行中",
+                    "完了",
+                    "中止"
+                ],
+                index=(
+                    [
+                        "未着手",
+                        "進行中",
+                        "完了",
+                        "中止"
+                    ].index(status)
+                    if status
+                    in [
+                        "未着手",
+                        "進行中",
+                        "完了",
+                        "中止"
+                    ]
+                    else 0
+                ),
+                key=f"status_{item_id}"
+            )
+
+
+            # ======================================
+            # 実行結果
+            # ======================================
+
+            new_result = st.text_area(
+                "📊 実行結果・進捗メモ",
+                value=result or "",
+                placeholder=(
+                    "例：Instagram投稿を7日間実施。"
+                    "新規問い合わせ3件、来店1件。"
+                ),
+                key=f"result_{item_id}"
+            )
+
+
+            # ======================================
+            # Supabase更新
+            # ======================================
+
+            if st.button(
+                "💾 進捗を保存",
+                key=f"save_{item_id}"
+            ):
+
+                try:
+
+                    (
+                        supabase
+                        .table("meeting_history")
+                        .update(
+                            {
+                                "status":
+                                    new_status,
+
+                                "result":
+                                    new_result
+                            }
+                        )
+                        .eq(
+                            "id",
+                            item_id
+                        )
+                        .execute()
+                    )
+
+                    st.success(
+                        "進捗を保存しました。"
+                    )
+
+                    st.rerun()
+
+                except Exception as update_error:
+
+                    st.error(
+                        "進捗の保存に失敗しました。"
+                    )
+
+                    st.code(
+                        str(update_error)
+                    )
+
+else:
+
+    st.info(
+        "現在進行中の経営課題はありません。"
+    )
+
+
+st.divider()
 # ==================================================
 # CEO 議題入力
 # ==================================================
