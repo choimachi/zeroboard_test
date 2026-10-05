@@ -406,23 +406,23 @@ Day1〜Day7まで
                 }
             )
             # =========================
-# Supabaseに会議履歴を保存
-# =========================
+　　　　　　　　# Supabaseに会議履歴を保存
+　　　　　　　　# =========================
 
-try:
-    supabase.table("meeting_history").insert(
-        {
-            "topic": topic,
-            "final": final
-        }
-    ).execute()
+　　　　　　　　try:
+               supabase.table("meeting_history").insert(
+                  {
+                      "topic": topic,
+                      "final": final
+                  }
+                  ).execute()
 
-except Exception as db_error:
-    st.warning(
-        "AI経営会議は完了しましたが、"
-        "Supabaseへの履歴保存に失敗しました。"
-    )
-    st.code(str(db_error))
+　　　　　　　　except Exception as db_error:
+               st.warning(
+                   "AI経営会議は完了しましたが、"
+                   "Supabaseへの履歴保存に失敗しました。"
+               )
+               st.code(str(db_error))
 
         except Exception as e:
 
