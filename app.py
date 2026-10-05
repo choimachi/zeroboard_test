@@ -2,6 +2,11 @@ import streamlit as st
 from openai import OpenAI
 from supabase import create_client
 
+
+# ==================================================
+# ページ設定
+# ==================================================
+
 st.set_page_config(
     page_title="ZEROBOARD AI",
     page_icon="🧠",
@@ -16,21 +21,29 @@ st.write(
 )
 st.divider()
 
-# =========================
+
+# ==================================================
 # OpenAI接続
-# =========================
+# ==================================================
 
 client = OpenAI(
     api_key=st.secrets["OPENAI_API_KEY"]
 )
+
+
+# ==================================================
+# Supabase接続
+# ==================================================
+
 supabase = create_client(
     st.secrets["SUPABASE_URL"],
     st.secrets["SUPABASE_KEY"]
 )
 
-# =========================
+
+# ==================================================
 # セッション保存
-# =========================
+# ==================================================
 
 if "meeting_result" not in st.session_state:
     st.session_state.meeting_result = None
@@ -41,44 +54,46 @@ if "last_topic" not in st.session_state:
 if "meeting_history" not in st.session_state:
     st.session_state.meeting_history = []
 
-# =========================
-# 議題入力
-# =========================
+
+# ==================================================
+# CEO 議題入力
+# ==================================================
 
 topic = st.text_area(
     "CEO、今日の議題を入力してください",
-    placeholder=(
-        "例：AIを使って月10万円の利益を作れる"
-        "新規事業を考える"
-    ),
+    placeholder="例：AIを使って月10万円の利益を作れる新規事業を考える",
     height=120
 )
 
-# =========================
-# AI役員に質問する関数
-# =========================
 
-def ask_ai(role, topic):
+# ==================================================
+# AIに質問する関数
+# ==================================================
+
+def ask_ai(role, meeting_topic):
 
     response = client.responses.create(
         model="gpt-5-mini",
         instructions=role,
         input=f"""
 経営会議の議題：
-{topic}
+{meeting_topic}
 
 日本語で回答してください。
+
 具体的で実行可能な意見を出してください。
-結論だけでなく、その理由も簡潔に説明してください。
+
+結論だけでなく、
+その理由も簡潔に説明してください。
 """
     )
 
     return response.output_text
 
 
-# =========================
+# ==================================================
 # AI経営会議開始
-# =========================
+# ==================================================
 
 if st.button(
     "🚀 AI経営会議を開始",
@@ -95,13 +110,13 @@ if st.button(
 
         try:
 
+            # ==========================================
+            # 第1ラウンド
+            # ==========================================
+
             with st.spinner(
                 "AI役員が第1ラウンドを議論中..."
             ):
-
-                # =========================
-                # 第1ラウンド
-                # =========================
 
                 strategy = ask_ai(
                     """
@@ -112,7 +127,8 @@ if st.button(
 事業モデル、
 成長可能性
 
-の観点からCEOの議題を分析してください。
+の観点から
+CEOの議題を分析してください。
 """,
                     topic
                 )
@@ -128,7 +144,8 @@ if st.button(
 価格、
 ブランド
 
-の観点からCEOの議題を分析してください。
+の観点から
+CEOの議題を分析してください。
 """,
                     topic
                 )
@@ -143,7 +160,8 @@ if st.button(
 コスト、
 採算性
 
-の観点からCEOの議題を分析してください。
+の観点から
+CEOの議題を分析してください。
 
 数字を使えるところは
 具体的に示してください。
@@ -167,30 +185,40 @@ if st.button(
                     topic
                 )
 
-            # =========================
-            # 第1ラウンドをまとめる
-            # =========================
+
+            # ==========================================
+            # 第1ラウンドまとめ
+            # ==========================================
 
             first_round = f"""
 CEOの議題：
 {topic}
 
+
 【戦略担当役員】
+
 {strategy}
 
+
 【マーケティング担当役員】
+
 {marketing}
 
+
 【財務担当役員】
+
 {finance}
 
+
 【リスク担当役員】
+
 {risk}
 """
 
-            # =========================
+
+            # ==========================================
             # 第2ラウンド
-            # =========================
+            # ==========================================
 
             with st.spinner(
                 "AI役員が第2ラウンドを討論中..."
@@ -274,47 +302,75 @@ CEOの議題：
                     first_round
                 )
 
-            # =========================
+
+            # ==========================================
             # 議長AI
-            # =========================
+            # ==========================================
 
             chairman_prompt = f"""
 あなたはZEROBOARD AIの議長です。
 
+
 CEOの議題：
+
 {topic}
+
 
 以下はAI役員による
 2ラウンドの経営会議です。
 
 
+====================
+
 【第1ラウンド】
 
+====================
+
+
 【戦略担当】
+
 {strategy}
 
+
 【マーケティング担当】
+
 {marketing}
 
+
 【財務担当】
+
 {finance}
 
+
 【リスク担当】
+
 {risk}
 
 
+====================
+
 【第2ラウンド】
 
+====================
+
+
 【戦略担当】
+
 {strategy_round2}
 
+
 【マーケティング担当】
+
 {marketing_round2}
 
+
 【財務担当】
+
 {finance_round2}
 
+
 【リスク担当】
+
 {risk_round2}
 
 
@@ -359,18 +415,26 @@ Day1〜Day7まで
 具体的に提示
 """
 
+
+            # ==========================================
+            # 議長AI 最終判断
+            # ==========================================
+
             with st.spinner(
                 "議長AIが最終判断を作成中..."
             ):
 
-                final = client.responses.create(
+                final_response = client.responses.create(
                     model="gpt-5-mini",
                     input=chairman_prompt
-                ).output_text
+                )
 
-            # =========================
-            # 結果を保存
-            # =========================
+                final = final_response.output_text
+
+
+            # ==========================================
+            # Streamlitセッションに結果保存
+            # ==========================================
 
             st.session_state.last_topic = topic
 
@@ -399,43 +463,61 @@ Day1〜Day7まで
                 "final": final
             }
 
+
+            # ==========================================
+            # 一時的な会議履歴
+            # ==========================================
+
             st.session_state.meeting_history.append(
                 {
                     "topic": topic,
                     "final": final
                 }
             )
-            # =========================
-　　　　　　　　# Supabaseに会議履歴を保存
-　　　　　　　　# =========================
 
-　　　　　　　　try:
-               supabase.table("meeting_history").insert(
-                  {
-                      "topic": topic,
-                      "final": final
-                  }
-                  ).execute()
 
-　　　　　　　　except Exception as db_error:
-               st.warning(
-                   "AI経営会議は完了しましたが、"
-                   "Supabaseへの履歴保存に失敗しました。"
-               )
-               st.code(str(db_error))
+            # ==========================================
+            # Supabaseへ永久保存
+            # ==========================================
+
+            try:
+
+                supabase.table(
+                    "meeting_history"
+                ).insert(
+                    {
+                        "topic": topic,
+                        "final": final
+                    }
+                ).execute()
+
+            except Exception as db_error:
+
+                st.warning(
+                    "AI経営会議は完了しましたが、"
+                    "Supabaseへの履歴保存に失敗しました。"
+                )
+
+                st.code(
+                    str(db_error)
+                )
+
 
         except Exception as e:
 
             st.error(
-                "AIとの通信でエラーが発生しました。"
+                "AIとの通信または処理中に"
+                "エラーが発生しました。"
             )
 
-            st.code(str(e))
+            st.code(
+                str(e)
+            )
 
 
-# =========================
+# ==================================================
 # 会議結果表示
-# =========================
+# ==================================================
 
 if st.session_state.meeting_result:
 
@@ -443,17 +525,22 @@ if st.session_state.meeting_result:
 
     st.divider()
 
-    st.header("🏢 AI経営会議")
+    st.header(
+        "🏢 AI経営会議"
+    )
 
-    st.subheader("📋 議題")
+    st.subheader(
+        "📋 議題"
+    )
 
     st.write(
         st.session_state.last_topic
     )
 
-    # =========================
+
+    # ==============================================
     # 第1ラウンド表示
-    # =========================
+    # ==============================================
 
     st.subheader(
         "1️⃣ 第1ラウンド"
@@ -462,6 +549,7 @@ if st.session_state.meeting_result:
     with st.expander(
         "🧠 戦略担当役員"
     ):
+
         st.markdown(
             result["strategy"]
         )
@@ -469,6 +557,7 @@ if st.session_state.meeting_result:
     with st.expander(
         "📣 マーケティング担当役員"
     ):
+
         st.markdown(
             result["marketing"]
         )
@@ -476,6 +565,7 @@ if st.session_state.meeting_result:
     with st.expander(
         "💰 財務担当役員"
     ):
+
         st.markdown(
             result["finance"]
         )
@@ -483,13 +573,15 @@ if st.session_state.meeting_result:
     with st.expander(
         "⚠️ リスク担当役員"
     ):
+
         st.markdown(
             result["risk"]
         )
 
-    # =========================
+
+    # ==============================================
     # 第2ラウンド表示
-    # =========================
+    # ==============================================
 
     st.divider()
 
@@ -500,6 +592,7 @@ if st.session_state.meeting_result:
     with st.expander(
         "🧠 戦略担当役員・再検討"
     ):
+
         st.markdown(
             result["strategy_round2"]
         )
@@ -507,6 +600,7 @@ if st.session_state.meeting_result:
     with st.expander(
         "📣 マーケティング担当役員・再検討"
     ):
+
         st.markdown(
             result["marketing_round2"]
         )
@@ -514,6 +608,7 @@ if st.session_state.meeting_result:
     with st.expander(
         "💰 財務担当役員・再検討"
     ):
+
         st.markdown(
             result["finance_round2"]
         )
@@ -521,13 +616,15 @@ if st.session_state.meeting_result:
     with st.expander(
         "⚠️ リスク担当役員・再検討"
     ):
+
         st.markdown(
             result["risk_round2"]
         )
 
-    # =========================
-    # 議長AI
-    # =========================
+
+    # ==============================================
+    # 議長AI表示
+    # ==============================================
 
     st.divider()
 
@@ -544,9 +641,9 @@ if st.session_state.meeting_result:
     )
 
 
-# =========================
-# 会議履歴
-# =========================
+# ==================================================
+# 現在のセッションの会議履歴
+# ==================================================
 
 st.divider()
 
