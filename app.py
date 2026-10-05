@@ -96,7 +96,16 @@ def load_meeting_history(limit=None):
 # Supabaseへ会議を保存
 # ==================================================
 
-def save_meeting(topic, final):
+def save_meeting(
+    topic,
+    final,
+    decision="",
+    goal="",
+    deadline="",
+    next_action="",
+    result="",
+    status="未着手"
+):
 
     try:
 
@@ -106,7 +115,13 @@ def save_meeting(topic, final):
             .insert(
                 {
                     "topic": topic,
-                    "final": final
+                    "final": final,
+                    "decision": decision,
+                    "goal": goal,
+                    "deadline": deadline,
+                    "next_action": next_action,
+                    "result": result,
+                    "status": status
                 }
             )
             .execute()
@@ -124,7 +139,94 @@ def save_meeting(topic, final):
         st.code(str(db_error))
 
         return False
+# ==================================================
+# 議長判断を構造化された経営記憶へ変換
+# ==================================================
 
+def create_structured_memory(topic, final):
+
+    prompt = f"""
+あなたはZEROBOARD AIの経営記憶管理AIです。
+
+以下のAI経営会議の最終判断から、
+将来の経営判断で使うべき重要情報を抽出してください。
+
+
+【議題】
+
+{topic}
+
+
+【議長AIの最終判断】
+
+{final}
+
+
+以下のJSON形式だけで回答してください。
+
+{{
+    "decision": "最終的に何をすると決めたか",
+    "goal": "具体的な目標。なければ空文字",
+    "deadline": "期限。なければ空文字",
+    "next_action": "CEOが次に実行すべき最も具体的な行動",
+    "result": "",
+    "status": "未着手"
+}}
+
+説明文、
+Markdown、
+```json
+などは付けないでください。
+"""
+
+    try:
+
+        response = client.responses.create(
+            model="gpt-5-mini",
+            input=prompt
+        )
+
+        raw = response.output_text.strip()
+
+        raw = raw.replace("```json", "")
+        raw = raw.replace("```", "")
+        raw = raw.strip()
+
+        memory = json.loads(raw)
+
+        return {
+            "decision": memory.get(
+                "decision",
+                ""
+            ),
+            "goal": memory.get(
+                "goal",
+                ""
+            ),
+            "deadline": memory.get(
+                "deadline",
+                ""
+            ),
+            "next_action": memory.get(
+                "next_action",
+                ""
+            ),
+            "result": "",
+            "status": "未着手"
+        }
+
+    except Exception:
+
+        # 記憶整理に失敗しても
+        # AI経営会議そのものは止めない
+        return {
+            "decision": "",
+            "goal": "",
+            "deadline": "",
+            "next_action": "",
+            "result": "",
+            "status": "未着手"
+        }
 
 # ==================================================
 # 過去会議から関連記憶を選ぶ
@@ -807,21 +909,40 @@ Day1〜Day7まで
             }
 
 
-            # ==========================================
-            # Supabaseへ永久保存
-            # ==========================================
+# ==========================================
+# 経営判断を構造化
+# ==========================================
 
-            saved = save_meeting(
-                topic,
-                final
-            )
+with st.spinner(
+    "🧠 ZEROBOARDが経営判断を記憶として整理中..."
+):
 
-            if saved:
+    structured_memory = create_structured_memory(
+        topic,
+        final
+    )
 
-                st.toast(
-                    "🧠 新しい経営判断を長期記憶へ保存しました"
-                )
 
+# ==========================================
+# Supabaseへ永久保存
+# ==========================================
+
+saved = save_meeting(
+    topic=topic,
+    final=final,
+    decision=structured_memory["decision"],
+    goal=structured_memory["goal"],
+    deadline=structured_memory["deadline"],
+    next_action=structured_memory["next_action"],
+    result=structured_memory["result"],
+    status=structured_memory["status"]
+)
+
+if saved:
+
+    st.toast(
+        "🧠 経営判断を長期記憶へ保存しました"
+    )
 
         except Exception as e:
 
