@@ -1,5 +1,6 @@
 import streamlit as st
 from openai import OpenAI
+from supabase import create_client
 
 st.set_page_config(
     page_title="ZEROBOARD AI",
@@ -21,6 +22,10 @@ st.divider()
 
 client = OpenAI(
     api_key=st.secrets["OPENAI_API_KEY"]
+)
+supabase = create_client(
+    st.secrets["SUPABASE_URL"],
+    st.secrets["SUPABASE_KEY"]
 )
 
 # =========================
