@@ -16,12 +16,10 @@ st.set_page_config(
 
 st.title("🧠 ZEROBOARD AI")
 st.caption("AI経営会議システム")
-
 st.write(
     "あなたがCEO。4人のAI役員が議論し、"
     "最後に議長AIが経営判断をまとめます。"
 )
-
 st.divider()
 
 
@@ -69,7 +67,11 @@ def load_meeting_history(limit=None):
         query = (
             supabase
             .table("meeting_history")
-            .select("id, created_at, topic, final")
+            .select(
+                "id, created_at, topic, final, "
+                "decision, goal, deadline, "
+                "next_action, result, status"
+            )
             .order("created_at", desc=True)
         )
 
@@ -139,6 +141,8 @@ def save_meeting(
         st.code(str(db_error))
 
         return False
+
+
 # ==================================================
 # 議長判断を構造化された経営記憶へ変換
 # ==================================================
@@ -173,10 +177,7 @@ def create_structured_memory(topic, final):
     "status": "未着手"
 }}
 
-説明文、
-Markdown、
-```json
-などは付けないでください。
+説明文やMarkdownは付けないでください。
 """
 
     try:
@@ -218,7 +219,7 @@ Markdown、
     except Exception:
 
         # 記憶整理に失敗しても
-        # AI経営会議そのものは止めない
+        # 経営会議そのものは止めない
         return {
             "decision": "",
             "goal": "",
@@ -228,13 +229,15 @@ Markdown、
             "status": "未着手"
         }
 
+
 # ==================================================
 # 過去会議から関連記憶を選ぶ
 # ==================================================
 
 def select_relevant_memories(current_topic):
 
-    # Ver.1では直近20件を候補にする
+    # Ver.2では直近20件から
+    # 今回に関連するものを最大3件選ぶ
     history = load_meeting_history(limit=20)
 
     if not history:
@@ -248,7 +251,31 @@ def select_relevant_memories(current_topic):
             {
                 "id": meeting.get("id"),
                 "topic": meeting.get("topic", ""),
-                "final": meeting.get("final", "")
+                "final": meeting.get("final", ""),
+                "decision": meeting.get(
+                    "decision",
+                    ""
+                ),
+                "goal": meeting.get(
+                    "goal",
+                    ""
+                ),
+                "deadline": meeting.get(
+                    "deadline",
+                    ""
+                ),
+                "next_action": meeting.get(
+                    "next_action",
+                    ""
+                ),
+                "result": meeting.get(
+                    "result",
+                    ""
+                ),
+                "status": meeting.get(
+                    "status",
+                    ""
+                )
             }
         )
 
@@ -287,7 +314,7 @@ def select_relevant_memories(current_topic):
 
 []
 
-説明文やMarkdownは一切付けないでください。
+説明文やMarkdownは付けないでください。
 """
 
     try:
@@ -299,7 +326,6 @@ def select_relevant_memories(current_topic):
 
         raw = response.output_text.strip()
 
-        # ```json ... ``` が返った場合にも対応
         raw = raw.replace("```json", "")
         raw = raw.replace("```", "")
         raw = raw.strip()
@@ -309,7 +335,6 @@ def select_relevant_memories(current_topic):
         if not isinstance(selected_ids, list):
             return []
 
-        # 最大3件まで
         selected_ids = selected_ids[:3]
 
         selected_memories = []
@@ -317,7 +342,6 @@ def select_relevant_memories(current_topic):
         for meeting in history:
 
             if meeting.get("id") in selected_ids:
-
                 selected_memories.append(meeting)
 
         return selected_memories
@@ -325,7 +349,7 @@ def select_relevant_memories(current_topic):
     except Exception:
 
         # 記憶選択に失敗しても
-        # 本体の経営会議は止めない
+        # 経営会議本体は止めない
         return []
 
 
@@ -361,6 +385,24 @@ def build_memory_context(memories):
 過去の議題：
 {memory.get("topic", "")}
 
+決定事項：
+{memory.get("decision", "")}
+
+目標：
+{memory.get("goal", "")}
+
+期限：
+{memory.get("deadline", "")}
+
+次の行動：
+{memory.get("next_action", "")}
+
+結果：
+{memory.get("result", "")}
+
+状態：
+{memory.get("status", "")}
+
 過去の最終経営判断：
 {memory.get("final", "")}
 
@@ -379,9 +421,12 @@ def build_memory_context(memories):
 ただし、
 
 ・以前決めた方針
+・以前設定した目標
+・期限
+・以前の次の行動
+・実行結果
+・現在のステータス
 ・以前指摘されたリスク
-・過去の数字
-・以前のアクションプラン
 ・今回と矛盾する判断
 
 があれば考慮してください。
@@ -471,7 +516,9 @@ if st.button(
             ):
 
                 relevant_memories = (
-                    select_relevant_memories(topic)
+                    select_relevant_memories(
+                        topic
+                    )
                 )
 
                 memory_context = (
@@ -514,7 +561,6 @@ CEOの議題を分析してください。
                     memory_context
                 )
 
-
                 marketing = ask_ai(
                     """
 あなたはZEROBOARD AIの
@@ -536,7 +582,6 @@ CEOの議題を分析してください。
                     topic,
                     memory_context
                 )
-
 
                 finance = ask_ai(
                     """
@@ -563,7 +608,6 @@ CEOの議題を分析してください。
                     topic,
                     memory_context
                 )
-
 
                 risk = ask_ai(
                     """
@@ -659,7 +703,6 @@ CEOの議題：
                     first_round
                 )
 
-
                 marketing_round2 = ask_ai(
                     """
 あなたはZEROBOARD AIの
@@ -680,7 +723,6 @@ CEOの議題：
                     first_round
                 )
 
-
                 finance_round2 = ask_ai(
                     """
 あなたはZEROBOARD AIの
@@ -700,7 +742,6 @@ CEOの議題：
 """,
                     first_round
                 )
-
 
                 risk_round2 = ask_ai(
                     """
@@ -869,12 +910,16 @@ Day1〜Day7まで
                 "議長AIが記憶と議論を統合中..."
             ):
 
-                final_response = client.responses.create(
-                    model="gpt-5-mini",
-                    input=chairman_prompt
+                final_response = (
+                    client.responses.create(
+                        model="gpt-5-mini",
+                        input=chairman_prompt
+                    )
                 )
 
-                final = final_response.output_text
+                final = (
+                    final_response.output_text
+                )
 
 
             # ==========================================
@@ -909,40 +954,57 @@ Day1〜Day7まで
             }
 
 
-# ==========================================
-# 経営判断を構造化
-# ==========================================
+            # ==========================================
+            # 経営判断を構造化
+            # ==========================================
 
-with st.spinner(
-    "🧠 ZEROBOARDが経営判断を記憶として整理中..."
-):
+            with st.spinner(
+                "🧠 ZEROBOARDが経営判断を"
+                "記憶として整理中..."
+            ):
 
-    structured_memory = create_structured_memory(
-        topic,
-        final
-    )
+                structured_memory = (
+                    create_structured_memory(
+                        topic,
+                        final
+                    )
+                )
 
 
-# ==========================================
-# Supabaseへ永久保存
-# ==========================================
+            # ==========================================
+            # Supabaseへ永久保存
+            # ==========================================
 
-saved = save_meeting(
-    topic=topic,
-    final=final,
-    decision=structured_memory["decision"],
-    goal=structured_memory["goal"],
-    deadline=structured_memory["deadline"],
-    next_action=structured_memory["next_action"],
-    result=structured_memory["result"],
-    status=structured_memory["status"]
-)
+            saved = save_meeting(
+                topic=topic,
+                final=final,
+                decision=structured_memory[
+                    "decision"
+                ],
+                goal=structured_memory[
+                    "goal"
+                ],
+                deadline=structured_memory[
+                    "deadline"
+                ],
+                next_action=structured_memory[
+                    "next_action"
+                ],
+                result=structured_memory[
+                    "result"
+                ],
+                status=structured_memory[
+                    "status"
+                ]
+            )
 
-if saved:
+            if saved:
 
-    st.toast(
-        "🧠 経営判断を長期記憶へ保存しました"
-    )
+                st.toast(
+                    "🧠 経営判断を"
+                    "長期記憶へ保存しました"
+                )
+
 
         except Exception as e:
 
@@ -986,6 +1048,56 @@ if st.session_state.meeting_result:
                 f"{memory.get('topic', '')}"
             ):
 
+                decision = memory.get(
+                    "decision",
+                    ""
+                )
+
+                goal = memory.get(
+                    "goal",
+                    ""
+                )
+
+                deadline = memory.get(
+                    "deadline",
+                    ""
+                )
+
+                next_action = memory.get(
+                    "next_action",
+                    ""
+                )
+
+                status = memory.get(
+                    "status",
+                    ""
+                )
+
+                if decision:
+                    st.write(
+                        f"**決定事項：** {decision}"
+                    )
+
+                if goal:
+                    st.write(
+                        f"**目標：** {goal}"
+                    )
+
+                if deadline:
+                    st.write(
+                        f"**期限：** {deadline}"
+                    )
+
+                if next_action:
+                    st.write(
+                        f"**次の行動：** {next_action}"
+                    )
+
+                if status:
+                    st.write(
+                        f"**状態：** {status}"
+                    )
+
                 st.markdown(
                     memory.get(
                         "final",
@@ -1007,7 +1119,9 @@ if st.session_state.meeting_result:
 
 if st.session_state.meeting_result:
 
-    result = st.session_state.meeting_result
+    result = (
+        st.session_state.meeting_result
+    )
 
     st.divider()
 
@@ -1141,7 +1255,9 @@ st.caption(
     "Supabaseに永久保存されているAI経営会議"
 )
 
-meeting_history = load_meeting_history()
+meeting_history = (
+    load_meeting_history()
+)
 
 
 # ==================================================
@@ -1177,6 +1293,36 @@ if meeting_history:
             ""
         )
 
+        decision = meeting.get(
+            "decision",
+            ""
+        )
+
+        goal = meeting.get(
+            "goal",
+            ""
+        )
+
+        deadline = meeting.get(
+            "deadline",
+            ""
+        )
+
+        next_action = meeting.get(
+            "next_action",
+            ""
+        )
+
+        result = meeting.get(
+            "result",
+            ""
+        )
+
+        status = meeting.get(
+            "status",
+            ""
+        )
+
         with st.expander(
             f"#{meeting_id}｜{meeting_topic}"
         ):
@@ -1186,6 +1332,50 @@ if meeting_history:
                 st.caption(
                     f"保存日時：{created_at}"
                 )
+
+            if decision:
+
+                st.write(
+                    f"**🎯 決定事項：** "
+                    f"{decision}"
+                )
+
+            if goal:
+
+                st.write(
+                    f"**📈 目標：** "
+                    f"{goal}"
+                )
+
+            if deadline:
+
+                st.write(
+                    f"**⏰ 期限：** "
+                    f"{deadline}"
+                )
+
+            if next_action:
+
+                st.write(
+                    f"**🚀 次の行動：** "
+                    f"{next_action}"
+                )
+
+            if result:
+
+                st.write(
+                    f"**📊 結果：** "
+                    f"{result}"
+                )
+
+            if status:
+
+                st.write(
+                    f"**📌 状態：** "
+                    f"{status}"
+                )
+
+            st.divider()
 
             st.markdown(
                 meeting_final
