@@ -42,7 +42,7 @@ supabase = create_client(
 
 
 # ==================================================
-# セッション保存
+# セッション初期化
 # ==================================================
 
 if "meeting_result" not in st.session_state:
@@ -51,19 +51,69 @@ if "meeting_result" not in st.session_state:
 if "last_topic" not in st.session_state:
     st.session_state.last_topic = ""
 
-if "meeting_history" not in st.session_state:
-    st.session_state.meeting_history = []
+
+# ==================================================
+# Supabaseから過去の会議を読み込む
+# ==================================================
+
+def load_meeting_history():
+
+    try:
+
+        response = (
+            supabase
+            .table("meeting_history")
+            .select("id, created_at, topic, final")
+            .order("created_at", desc=True)
+            .execute()
+        )
+
+        return response.data
+
+    except Exception as db_error:
+
+        st.warning(
+            "過去の会議履歴をSupabaseから"
+            "読み込めませんでした。"
+        )
+
+        st.code(str(db_error))
+
+        return []
 
 
 # ==================================================
-# CEO 議題入力
+# Supabaseへ会議を保存
 # ==================================================
 
-topic = st.text_area(
-    "CEO、今日の議題を入力してください",
-    placeholder="例：AIを使って月10万円の利益を作れる新規事業を考える",
-    height=120
-)
+def save_meeting(topic, final):
+
+    try:
+
+        response = (
+            supabase
+            .table("meeting_history")
+            .insert(
+                {
+                    "topic": topic,
+                    "final": final
+                }
+            )
+            .execute()
+        )
+
+        return True
+
+    except Exception as db_error:
+
+        st.warning(
+            "AI経営会議は完了しましたが、"
+            "Supabaseへの履歴保存に失敗しました。"
+        )
+
+        st.code(str(db_error))
+
+        return False
 
 
 # ==================================================
@@ -89,6 +139,17 @@ def ask_ai(role, meeting_topic):
     )
 
     return response.output_text
+
+
+# ==================================================
+# CEO 議題入力
+# ==================================================
+
+topic = st.text_area(
+    "CEO、今日の議題を入力してください",
+    placeholder="例：AIを使って月10万円の利益を作れる新規事業を考える",
+    height=120
+)
 
 
 # ==================================================
@@ -433,7 +494,7 @@ Day1〜Day7まで
 
 
             # ==========================================
-            # Streamlitセッションに結果保存
+            # 現在の会議結果を保存
             # ==========================================
 
             st.session_state.last_topic = topic
@@ -465,42 +526,13 @@ Day1〜Day7まで
 
 
             # ==========================================
-            # 一時的な会議履歴
-            # ==========================================
-
-            st.session_state.meeting_history.append(
-                {
-                    "topic": topic,
-                    "final": final
-                }
-            )
-
-
-            # ==========================================
             # Supabaseへ永久保存
             # ==========================================
 
-            try:
-
-                supabase.table(
-                    "meeting_history"
-                ).insert(
-                    {
-                        "topic": topic,
-                        "final": final
-                    }
-                ).execute()
-
-            except Exception as db_error:
-
-                st.warning(
-                    "AI経営会議は完了しましたが、"
-                    "Supabaseへの履歴保存に失敗しました。"
-                )
-
-                st.code(
-                    str(db_error)
-                )
+            save_meeting(
+                topic,
+                final
+            )
 
 
         except Exception as e:
@@ -516,7 +548,7 @@ Day1〜Day7まで
 
 
 # ==================================================
-# 会議結果表示
+# 今回の会議結果表示
 # ==================================================
 
 if st.session_state.meeting_result:
@@ -539,7 +571,7 @@ if st.session_state.meeting_result:
 
 
     # ==============================================
-    # 第1ラウンド表示
+    # 第1ラウンド
     # ==============================================
 
     st.subheader(
@@ -580,7 +612,7 @@ if st.session_state.meeting_result:
 
 
     # ==============================================
-    # 第2ラウンド表示
+    # 第2ラウンド
     # ==============================================
 
     st.divider()
@@ -623,7 +655,7 @@ if st.session_state.meeting_result:
 
 
     # ==============================================
-    # 議長AI表示
+    # 議長AI
     # ==============================================
 
     st.divider()
@@ -642,34 +674,71 @@ if st.session_state.meeting_result:
 
 
 # ==================================================
-# 現在のセッションの会議履歴
+# Supabaseから過去会議を取得
 # ==================================================
 
 st.divider()
 
 st.header(
-    "📚 過去のAI経営会議"
+    "🧠 ZEROBOARD MEMORY"
 )
 
-if st.session_state.meeting_history:
+st.caption(
+    "Supabaseに永久保存されているAI経営会議"
+)
 
-    for i, meeting in enumerate(
-        reversed(
-            st.session_state.meeting_history
-        ),
-        1
-    ):
+meeting_history = load_meeting_history()
+
+
+# ==================================================
+# 過去会議表示
+# ==================================================
+
+if meeting_history:
+
+    st.success(
+        f"{len(meeting_history)}件の会議記録を読み込みました。"
+    )
+
+    for meeting in meeting_history:
+
+        meeting_id = meeting.get(
+            "id",
+            "?"
+        )
+
+        meeting_topic = meeting.get(
+            "topic",
+            "議題なし"
+        )
+
+        meeting_final = meeting.get(
+            "final",
+            ""
+        )
+
+        created_at = meeting.get(
+            "created_at",
+            ""
+        )
 
         with st.expander(
-            f"会議 {i}：{meeting['topic']}"
+            f"#{meeting_id}｜{meeting_topic}"
         ):
 
+            if created_at:
+
+                st.caption(
+                    f"保存日時：{created_at}"
+                )
+
             st.markdown(
-                meeting["final"]
+                meeting_final
             )
 
 else:
 
-    st.caption(
-        "まだ会議履歴はありません。"
+    st.info(
+        "Supabaseに保存された"
+        "会議履歴はまだありません。"
     )
