@@ -290,7 +290,7 @@ let initial=1;try{const saved=Number(localStorage.getItem('zeroboard_floor_v11')
 function tick(t){const dt=Math.min((t-last)/1000,.06);last=t;
  for(const a of characters){const dx=a.target[0]-a.x,dy=a.target[1]-a.y,d=Math.hypot(dx,dy);
  if(!paused&&a.rest<=0&&d>.6){let step=Math.min(d,3.4*dt);a.x+=dx/d*step;a.y+=dy/d*step;a.el.classList.add('walk');a.el.querySelector('img').style.transform=dx<0?'scaleX(-1)':''}
- else{a.el.classList.remove('walk');if(!paused){a.rest-=dt;if(a.rest<=0){a.target=spot(a.zone);a.rest=rnd(1,3);if(Math.random()<.18)a.talk=t+1800}}}
+ else{a.el.classList.remove('walk');if(!paused){if(a.rest>0){a.rest=Math.max(0,a.rest-dt)}else if(d<=.6){a.target=spot(a.zone);a.rest=rnd(1,3);if(Math.random()<.18)a.talk=t+1800}}}
  a.el.style.left=a.x+'%';a.el.style.top=a.y+'%';a.el.classList.toggle('talk',t<a.talk)}requestAnimationFrame(tick)}requestAnimationFrame(tick);
 </script></body></html>'''
     office_html = office_html.replace('__STAFF__', staff_json)
