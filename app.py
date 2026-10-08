@@ -213,70 +213,120 @@ with st.expander('✅ 完了・中止した案件'):
         st.caption('完了・中止した案件はまだありません。')
 
 # ==================================================
-# Ver.6 AI OFFICE - 社員の見える化（第一段階）
-# ※社員の表示と組織設計。開発作業の自動実行は今後実装。
+# Ver.7 PIXEL OFFICE — 見下ろし型AIオフィス
+# 描画・プロフィール表示はローカル処理（API料金なし）
 # ==================================================
-st.divider()
-st.header('🏢 ZEROBOARD AI OFFICE')
-st.caption('AIカンパニーの組織図・社員名簿。開発部門は準備中です。')
+import base64
+from html import escape
 
+st.divider()
+st.header('🎮 ZEROBOARD PIXEL OFFICE')
+st.caption('会社経営ゲーム風のAIオフィス｜社員を選ぶとプロフィールが表示されます。')
+
+# 既存の12役職を維持。稼働状況は「役職として利用可能」か「未実装」を示します。
 OFFICE_STAFF = [
-    ('👑', '議長AI', '経営本部', '経営判断・会議統括', '稼働可能'),
-    ('🧠', '戦略AI', '経営本部', '事業戦略・成長計画', '稼働可能'),
-    ('📣', 'マーケティングAI', '経営本部', '集客・販売戦略', '稼働可能'),
-    ('💰', '財務AI', '経営本部', '収支・採算分析', '稼働可能'),
-    ('🛡️', 'リスクAI', '経営本部', 'リスク評価', '稼働可能'),
-    ('🧑‍💻', 'CTO AI', 'システム開発部', '技術選定・開発統括', '準備中'),
-    ('📐', '設計AI', 'システム開発部', '仕様・構成設計', '準備中'),
-    ('🎨', 'UI/UX AI', 'システム開発部', '画面設計・体験設計', '準備中'),
-    ('💻', '開発AI', 'システム開発部', 'コード生成・編集', '準備中'),
-    ('🧪', 'テストAI', '品質管理部', '自動テスト', '準備中'),
-    ('🐛', 'デバッグAI', '品質管理部', '不具合調査・修正', '準備中'),
-    ('🔒', 'セキュリティAI', '品質管理部', '安全性レビュー', '準備中'),
+    {'name': '議長AI', 'dept': '経営本部', 'duty': '経営判断・会議統括', 'status': '稼働可能', 'line': 'CEO、次の議題を待っています。', 'personality': '冷静で全体を見渡すリーダー', 'hair': '#e5e7eb', 'shirt': '#a78bfa'},
+    {'name': '戦略AI', 'dept': '経営本部', 'duty': '事業戦略・成長計画', 'status': '稼働可能', 'line': '次の成長戦略を考えよう。', 'personality': '未来志向で挑戦が好き', 'hair': '#78350f', 'shirt': '#38bdf8'},
+    {'name': 'マーケティングAI', 'dept': '経営本部', 'duty': '集客・販売戦略', 'status': '稼働可能', 'line': 'お客さんの視点が大切！', 'personality': '社交的でアイデア豊富', 'hair': '#b45309', 'shirt': '#fb7185'},
+    {'name': '財務AI', 'dept': '経営本部', 'duty': '収支・採算分析', 'status': '稼働可能', 'line': 'その予算、根拠はある？', 'personality': '堅実で数字に厳しい', 'hair': '#111827', 'shirt': '#4ade80'},
+    {'name': 'リスクAI', 'dept': '経営本部', 'duty': 'リスク評価', 'status': '稼働可能', 'line': '見落としはないかな。', 'personality': '慎重で観察力が高い', 'hair': '#6b7280', 'shirt': '#fbbf24'},
+    {'name': 'CTO AI', 'dept': 'システム開発部', 'duty': '技術選定・開発統括', 'status': '準備中', 'line': '開発体制を整えたい！', 'personality': '技術好きのまとめ役', 'hair': '#1e293b', 'shirt': '#818cf8'},
+    {'name': '設計AI', 'dept': 'システム開発部', 'duty': '仕様・構成設計', 'status': '準備中', 'line': 'まず仕様を整理しよう。', 'personality': '論理的で整理整頓が得意', 'hair': '#92400e', 'shirt': '#2dd4bf'},
+    {'name': 'UI/UX AI', 'dept': 'システム開発部', 'duty': '画面設計・体験設計', 'status': '準備中', 'line': '使いやすさが一番！', 'personality': '創造的で細部にこだわる', 'hair': '#db2777', 'shirt': '#f472b6'},
+    {'name': '開発AI', 'dept': 'システム開発部', 'duty': 'コード生成・編集', 'status': '準備中', 'line': 'コードを書きたい！', 'personality': 'ものづくりに夢中', 'hair': '#0f172a', 'shirt': '#60a5fa'},
+    {'name': 'テストAI', 'dept': '品質管理部', 'duty': '自動テスト', 'status': '準備中', 'line': '動作確認は任せて！', 'personality': '几帳面で粘り強い', 'hair': '#a16207', 'shirt': '#34d399'},
+    {'name': 'デバッグAI', 'dept': '品質管理部', 'duty': '不具合調査・修正', 'status': '準備中', 'line': 'バグを見つけたい！', 'personality': '探究心が強く少し神経質', 'hair': '#7c2d12', 'shirt': '#f97316'},
+    {'name': 'セキュリティAI', 'dept': '品質管理部', 'duty': '安全性レビュー', 'status': '準備中', 'line': '安全第一でいこう。', 'personality': '用心深い守護役', 'hair': '#334155', 'shirt': '#c084fc'},
 ]
 
+
+def pixel_person(staff, index):
+    # 16x20ピクセルの自作SVG社員キャラ
+    hair = staff['hair']
+    shirt = staff['shirt']
+    skin = ['#f3c69a', '#d9a477', '#f0bd91', '#e9b48b'][index % 4]
+    pants = '#1e293b'
+    pixels = [
+        (5, 1, 6, 2, hair), (4, 3, 8, 2, hair),
+        (5, 5, 6, 4, skin), (4, 5, 1, 3, hair), (11, 5, 1, 3, hair),
+        (6, 6, 1, 1, '#1f2937'), (9, 6, 1, 1, '#1f2937'),
+        (7, 8, 2, 1, '#b45353'),
+        (4, 9, 8, 6, shirt), (2, 10, 2, 5, skin), (12, 10, 2, 5, skin),
+        (5, 15, 3, 3, pants), (9, 15, 3, 3, pants),
+        (4, 18, 4, 2, '#111827'), (9, 18, 4, 2, '#111827'),
+    ]
+    rects = ''.join(f'<rect x="{x}" y="{y}" width="{w}" height="{h}" fill="{color}"/>'
+                    for x, y, w, h, color in pixels)
+    svg = f'<svg xmlns="http://www.w3.org/2000/svg" width="96" height="120" viewBox="0 0 16 20" shape-rendering="crispEdges">{rects}</svg>'
+    return base64.b64encode(svg.encode('utf-8')).decode('ascii')
+
+
 st.markdown('''<style>
-.zb-office {background:#111827; border:4px solid #374151; border-radius:5px;
-  padding:16px; color:#f9fafb; font-family:monospace;}
-.zb-room {border:3px solid #64748b; padding:10px; margin:10px 0;
-  background:repeating-linear-gradient(0deg,#1f2937,#1f2937 20px,#202f42 20px,#202f42 22px);}
-.zb-room-title {font-weight:bold; color:#fbbf24; margin-bottom:10px;}
-.zb-desk-grid {display:grid;grid-template-columns:repeat(auto-fit,minmax(105px,1fr));gap:10px;}
-.zb-desk {text-align:center; background:#334155; border:3px solid #94a3b8;
-  padding:8px 4px; box-shadow:3px 3px 0 #0f172a;}
-.zb-avatar {font-size:30px; image-rendering:pixelated; line-height:1.6;}
-.zb-name {font-size:12px;font-weight:bold;}
-.zb-ready {font-size:11px;color:#86efac;}
-.zb-wait {font-size:11px;color:#fcd34d;}
+.zb-pixel-floor{background-color:#263548;background-image:linear-gradient(90deg,#35475c 1px,transparent 1px),linear-gradient(#35475c 1px,transparent 1px);background-size:22px 22px;border:5px solid #64748b;border-radius:8px;padding:14px;text-align:center;color:#f8fafc;box-shadow:inset 0 0 0 4px #101827}
+.zb-pixel-sign{background:#0f172a;border:3px solid #fbbf24;box-shadow:4px 4px 0 #111827;padding:8px;color:#fde68a;font-weight:900;letter-spacing:1px;margin:4px auto 14px;max-width:360px}
+.zb-pixel-desk{height:16px;background:#8b5e3c;border:3px solid #51351e;box-shadow:3px 3px 0 #101827;margin:2px auto 0;max-width:110px}
+.zb-pixel-monitor{width:43px;height:28px;background:#172033;border:4px solid #94a3b8;box-shadow:3px 3px 0 #0f172a;margin:5px auto -2px;position:relative}
+.zb-pixel-monitor:after{content:'';position:absolute;inset:5px;background:#34d399}
+.zb-pixel-person{width:80px;height:100px;object-fit:contain;image-rendering:pixelated;margin:-3px auto 0;display:block}
+.zb-pixel-bubble{font-size:11px;line-height:1.3;min-height:47px;display:flex;align-items:center;justify-content:center;background:#fff9e9;color:#1f2937;border:3px solid #1f2937;box-shadow:3px 3px 0 #111827;border-radius:3px;padding:4px;overflow-wrap:anywhere}
+.zb-pixel-badge{font-size:10px;font-weight:800;margin:4px auto 0;color:#fef3c7}
+.zb-pixel-hall{background:#9ca3af;border:3px dashed #475569;color:#172033;font-weight:900;letter-spacing:3px;padding:6px;text-align:center;margin:8px 0}
+.zb-pixel-name{font-size:13px;font-weight:900;color:#f8fafc;margin-top:2px;text-align:center}
 </style>''', unsafe_allow_html=True)
 
-from html import escape
-rooms = [('経営本部', '👑 EXECUTIVE ROOM'),
-         ('システム開発部', '💻 DEVELOPMENT ROOM'),
-         ('品質管理部', '🧪 QUALITY ASSURANCE ROOM')]
-room_html = '<div class="zb-office">'
-for dept, title in rooms:
-    room_html += f'<div class="zb-room"><div class="zb-room-title">{escape(title)}</div><div class="zb-desk-grid">'
-    for avatar, name, department, duty, status in OFFICE_STAFF:
-        if department != dept:
-            continue
-        status_class = 'zb-ready' if status == '稼働可能' else 'zb-wait'
-        room_html += (f'<div class="zb-desk"><div class="zb-avatar">{avatar}</div>'
-                      f'<div class="zb-name">{escape(name)}</div>'
-                      f'<div class="{status_class}">{"●" if status == "稼働可能" else "○"} {escape(status)}</div></div>')
-    room_html += '</div></div>'
-room_html += '</div>'
-st.markdown(room_html, unsafe_allow_html=True)
+if 'pixel_selected_staff' not in st.session_state:
+    st.session_state.pixel_selected_staff = '議長AI'
 
-ready_count = sum(status == '稼働可能' for *_, status in OFFICE_STAFF)
+st.markdown('<div class="zb-pixel-floor"><div class="zb-pixel-sign">🏢 ZEROBOARD AI COMPANY<br>🎮 PIXEL OFFICE / 1F</div><div style="font-size:12px">CEO OFFICE → MEETING ROOM → DEVELOPMENT LAB</div></div>', unsafe_allow_html=True)
+
+rooms = [
+    ('経営本部', '👑 EXECUTIVE ROOM', '🪑 経営会議室'),
+    ('システム開発部', '💻 DEVELOPMENT LAB', '🖥️ 開発フロア'),
+    ('品質管理部', '🧪 QUALITY ASSURANCE', '🔬 品質管理室'),
+]
+for room_index, (dept, room_title, room_desc) in enumerate(rooms):
+    st.markdown(f'#### {room_title}')
+    st.caption(room_desc)
+    staff_in_room = [(i, member) for i, member in enumerate(OFFICE_STAFF) if member['dept'] == dept]
+    columns = st.columns(len(staff_in_room), gap='small')
+    for column, (index, member) in zip(columns, staff_in_room):
+        with column:
+            portrait = pixel_person(member, index)
+            bubble = escape(member['line'])
+            name = escape(member['name'])
+            status = '🟢 稼働可能' if member['status'] == '稼働可能' else '🟡 準備中'
+            tile = (f'<div class="zb-pixel-floor" style="padding:5px;min-height:238px">'
+                    f'<div class="zb-pixel-bubble">{bubble}</div>'
+                    f'<div class="zb-pixel-monitor"></div>'
+                    f'<img class="zb-pixel-person" alt="{name}" src="data:image/svg+xml;base64,{portrait}"/>'
+                    f'<div class="zb-pixel-desk"></div>'
+                    f'<div class="zb-pixel-name">{name}</div>'
+                    f'<div class="zb-pixel-badge">{status}</div></div>')
+            st.markdown(tile, unsafe_allow_html=True)
+            if st.button(f'🔎 {member["name"]}', key=f'pixel_staff_{index}', use_container_width=True):
+                st.session_state.pixel_selected_staff = member['name']
+    if room_index < len(rooms) - 1:
+        st.markdown('<div class="zb-pixel-hall">🚶 OFFICE CORRIDOR 🚶</div>', unsafe_allow_html=True)
+
+selected_member = next((m for m in OFFICE_STAFF if m['name'] == st.session_state.pixel_selected_staff), OFFICE_STAFF[0])
+st.subheader('🪪 AI社員プロフィール')
+with st.container(border=True):
+    st.markdown(f'### {selected_member["name"]}')
+    st.write(f'**所属：** {selected_member["dept"]}')
+    st.write(f'**担当：** {selected_member["duty"]}')
+    st.write(f'**性格：** {selected_member["personality"]}')
+    st.write(f'**ひとこと：** 💬「{selected_member["line"]}」')
+    st.write(f'**実装状態：** {"🟢 既存機能で利用可能" if selected_member["status"] == "稼働可能" else "🟡 開発機能は未実装"}')
+
+ready_count = sum(m['status'] == '稼働可能' for m in OFFICE_STAFF)
 c1, c2, c3 = st.columns(3)
 c1.metric('👥 社員数（構想含む）', len(OFFICE_STAFF))
 c2.metric('🟢 既存AI役職', ready_count)
 c3.metric('🟡 実装待ち', len(OFFICE_STAFF) - ready_count)
 with st.expander('📋 AI社員名簿・仕事内容'):
-    for avatar, name, department, duty, status in OFFICE_STAFF:
-        st.write(f'{avatar} **{name}**｜{department}｜{duty}｜{status}')
-st.info('現在のドット絵風オフィスは組織の見える化です。開発AI・テストAI・デバッグAIが実際にコードを実行する機能や、リアルタイム稼働表示は今後追加します。')
+    for member in OFFICE_STAFF:
+        st.write(f'**{member["name"]}**｜{member["dept"]}｜{member["duty"]}｜{member["status"]}')
+st.info('💡 ドット絵・吹き出しは演出です。社員は自動で働いたり、リアルタイムで作業したりしていません。開発・テスト・デバッグの実行機能は今後追加します。PIXEL OFFICEの表示自体にAPI料金はかかりません。')
 
 # ==================================================
 # Ver.4 CEO BRIEFING
