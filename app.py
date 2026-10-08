@@ -169,8 +169,8 @@ with tab_office:
     import base64
     import streamlit.components.v1 as components
 
-    st.header('🎮 ZEROBOARD WORKING HQ / Ver.14')
-    st.caption('4方向・2コマ歩行、仕事・休憩・待機の動作を追加したオフィスです。')
+    st.header('🎮 ZEROBOARD AI COMPANY LIFE / Ver.15')
+    st.caption('ゲーム内時計・社員交流・個性・実績ベースの会社レベルを追加。仕事の動作は演出です。')
 
     OFFICE_STAFF = [
         {'name': '議長AI', 'dept': '経営本部', 'duty': '経営判断・会議統括', 'status': '稼働可能', 'line': 'CEO、次の議題を待っています。', 'personality': '冷静で全体を見渡すリーダー', 'hair': '#e5e7eb', 'shirt': '#a78bfa'},
@@ -301,17 +301,37 @@ button:hover,button.active{background:#4c647b;border-color:#f6c97c}.level{border
 .glass{position:absolute;inset:0;pointer-events:none;border:3px solid #9bd2dc44;box-shadow:inset 0 0 16px #b2e4eb25;z-index:4}
 .worklamp{position:absolute;width:12px;height:12px;background:#ffdf91;border-radius:50%;box-shadow:0 0 24px 12px #ffe4a32a;pointer-events:none}
 </style></head><body><div class="shell">
-<div class="top"><span class="logo">🏙️ ZEROBOARD AI · WORKING HQ</span><span class="small">LIVE PIXEL WORLD / Ver.14</span></div>
-<div class="controls"><span class="level">🏠 COMPANY LEVEL 1</span><button id="f1" class="active">1F 本社</button><button id="f2">2F 開発（見学）</button><button id="f3">3F 品質管理（見学）</button><button id="pause">⏸ 歩行停止</button></div>
+<div class="top"><span class="logo">🏙️ ZEROBOARD AI · COMPANY LIFE</span><span class="small">LIVE PIXEL WORLD / Ver.15</span></div>
+<div class="controls"><span class="level" id="companyLevel">🏠 COMPANY LEVEL 1</span><span class="level" id="companyXP">📈 実績 0 / 5</span><span class="level" id="clock">🕒 09:00</span><span class="level" id="period">🌅 出勤</span><button id="f1" class="active">1F 本社</button><button id="f2">2F 開発（見学）</button><button id="f3">3F 品質管理（見学）</button><button id="pause">⏸ 動作停止</button><button id="speed">⏩ 時間 x1</button></div>
 <div class="viewport"><div class="scene" id="scene"><div class="corridor"></div><div id="rooms"></div><div id="actors"></div></div></div>
 <div class="panel" id="panel"><strong>👑 ZEROBOARD AI COMPANY</strong><br>社員をクリックするとプロフィールが表示されます。</div>
-<div class="note">💡 Ver.14：椅子に向かって歩き、着席してPC作業します。床・家具・社員は独立した描画要素です。社員は家具の当たり判定を避けて移動します。椅子への移動・着席・PC作業・休憩はブラウザ内の演出です。2F・3Fは将来イメージで、開発AIの自動作業やビル成長はまだ未実装です。歩行・会話は演出です。</div>
+<div class="note">💡 Ver.15：ゲーム内時間に合わせて勤務・昼休み・交流・夕方の会議・退勤を演出します。時間 x4 で動作を確認できます。会社LEVELはSupabaseで「完了」になった経営判断の件数から計算し、会議を開いただけでは増えません。2F・3Fは見学用で、自動開発やフロア解放は未実装です。社員の作業・会話は視覚演出です。</div>
 </div><script>
 const staff=__STAFF__;
+const completedCount=__COMPLETED__;
+const companyLevel=1+Math.floor(completedCount/5);
+document.getElementById('companyLevel').textContent='🏠 COMPANY LEVEL '+companyLevel;
+document.getElementById('companyXP').textContent='📈 完了実績 '+(completedCount%5)+' / 5 （累計 '+completedCount+' 件）';
 const roomsRoot=document.getElementById('rooms'),actorsRoot=document.getElementById('actors'),panel=document.getElementById('panel');
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
 let paused=reduce,last=performance.now(),currentFloor=1,characters=[];
+let gameMinute=8*60, speed=1, phase='arrival', phaseKey='';
+const clockEl=document.getElementById('clock'),periodEl=document.getElementById('period');
+const speedBtn=document.getElementById('speed');
+speedBtn.onclick=()=>{speed=speed===1?4:speed===4?12:1;speedBtn.textContent='⏩ 時間 x'+speed};
+const chatter={
+ executive:['次の施策を相談しよう','数字の確認はできた？','CEOへの報告をまとめよう'],
+ development:['この設計どう思う？','UIの案を見てほしい！','テストの観点も大切やな'],
+ qa:['品質チェックを忘れずに','バグの再現条件は？','セキュリティも確認しよう'],
+ lounge:['休憩も大事やね','今日は調子どう？','次の会議が楽しみ！']
+};
+function currentPhase(){const h=(gameMinute/60)%24;return h<9?'arrival':h<12?'work':h<13?'lunch':h<17?'work':h<18?'meeting':'leave'}
+function phaseText(p){return ({arrival:'🌅 出勤',work:'💻 勤務中',lunch:'☕ 昼休み・交流',meeting:'🗣️ 夕方の会議',leave:'🌙 退勤'})[p]}
+function temperament(a){
+ const p=a.s.personality;
+ return {social:/社交|会話|アイデア|協調/.test(p),diligent:/冷静|慎重|堅実|分析|論理|集中/.test(p),active:/挑戦|行動|未来|好奇心/.test(p)};
+}
 const defs={1:{executive:'👑 EXECUTIVE / 経営本部',development:'💻 DEVELOPMENT / 開発準備室',qa:'🧪 QA / 品質管理室',lounge:'☕ LOUNGE / 休憩室'},2:{executive:'📐 PLANNING / 企画',development:'💻 DEVELOPMENT / 開発',qa:'📚 LIBRARY / 資料',lounge:'☕ LOUNGE / 休憩室'},3:{executive:'🧪 TEST LAB / テスト',development:'🐛 DEBUG / デバッグ',qa:'🔒 SECURITY / 監査',lounge:'☕ LOUNGE / 休憩室'}};
 const bounds={executive:[1,49,1,60],development:[51,99,1,60],qa:[1,49,64,99],lounge:[51,99,64,99]};
 const homes={'経営本部':'executive','システム開発部':'development','品質管理部':'qa'};
@@ -359,18 +379,18 @@ function build(n){currentFloor=n;roomsRoot.innerHTML='';actorsRoot.innerHTML='';
   const label=document.createElement('div');label.className='name';label.textContent=s.name;
   el.append(bubble,img,label);actorsRoot.appendChild(el);
   const activity=document.createElement('div');activity.className='activity';activity.style.display='none';el.appendChild(activity);
-  const a={s,room,el,img,activity,lx:p[0],ly:p[1],target:p,rest:rnd(.8,2.7),talk:0,mode:'idle',direction:'down',frame:-1,lastSprite:'',nextFrame:0,route:[],seat:null,goal:'roam',phase:'waiting'};characters.push(a);
+  const a={s,home:room,room,el,img,activity,lx:p[0],ly:p[1],target:p,rest:rnd(.8,2.7),talk:0,mode:'idle',direction:'down',frame:-1,lastSprite:'',nextFrame:0,route:[],seat:null,goal:'roam',phase:'waiting',socialUntil:0};characters.push(a);
   const select=()=>{characters.forEach(c=>c.el.classList.remove('selected'));el.classList.add('selected');
    panel.innerHTML='<strong>'+esc(s.name)+'</strong>　'+(s.status==='稼働可能'?'🟢 経営AI役職':'🟡 開発準備中')+'<br>'+esc(s.dept)+'｜'+esc(s.duty)+'<br>性格：'+esc(s.personality)+'<br>💬 '+esc(s.line)};
   el.addEventListener('click',select);el.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();select()}});
  });
  panel.innerHTML='<strong>'+(['','🏠 1F 本社','💻 2F 開発フロア（将来イメージ）','🧪 3F 品質管理（将来イメージ）'][n])+'</strong><br>社員をクリックするとプロフィールを表示します。';
- try{localStorage.setItem('zeroboard_floor_v14',String(n))}catch(e){}
+ try{localStorage.setItem('zeroboard_floor_v15',String(n))}catch(e){}
 }
 for(let n=1;n<=3;n++)document.getElementById('f'+n).onclick=()=>build(n);
 const pause=document.getElementById('pause');pause.textContent=paused?'▶ 歩行再開':'⏸ 歩行停止';
 pause.onclick=()=>{paused=!paused;pause.textContent=paused?'▶ 歩行再開':'⏸ 歩行停止'};
-let initial=1;try{let n=Number(localStorage.getItem('zeroboard_floor_v14')||localStorage.getItem('zeroboard_floor_v12')||localStorage.getItem('zeroboard_floor_v11'));if([1,2,3].includes(n))initial=n}catch(e){}build(initial);
+let initial=1;try{let n=Number(localStorage.getItem('zeroboard_floor_v15')||localStorage.getItem('zeroboard_floor_v14')||localStorage.getItem('zeroboard_floor_v12')||localStorage.getItem('zeroboard_floor_v11'));if([1,2,3].includes(n))initial=n}catch(e){}build(initial);
 // Use static sprite frames instead of CSS image transforms/opacity changes.
 // The source is changed only when a frame actually changes, preventing blinking.
 function sprite(a, direction, frame, sitting=false){
@@ -402,9 +422,37 @@ function setRoute(a,point,goal,seat=null){
  if(!route)return false;
  a.route=route;a.target=a.route.shift()||point;a.goal=goal;a.seat=seat;a.phase='moving';a.rest=0;return true;
 }
+function moveRoom(a,room){
+ if(a.room===room)return;
+ a.room=room;
+ const p=randomPoint(room);a.lx=p[0];a.ly=p[1];a.target=p;
+ a.route=[];a.seat=null;a.phase='waiting';a.mode='idle';a.rest=rnd(.3,1);
+ a.lastSprite='';a.activity.style.display='none';
+ // 別室への移動は現段階では廊下を歩かず、室内に再配置する演出。
+}
+function goSocial(a){
+ const companions=characters.filter(c=>c!==a&&c.room===a.room&&c.goal==='social');
+ const base=companions.length?companions[0]:null;
+ for(let i=0;i<25;i++){
+  const p=base?[base.lx+rnd(-13,13),base.ly+rnd(-12,12)]:randomPoint(a.room);
+  if(valid(a.room,...p)&&setRoute(a,p,'social'))return true;
+ }
+ return false;
+}
 function chooseActivity(a){
+ const personality=temperament(a);
+ if(phase==='leave'){a.goal='leave';a.phase='waiting';a.rest=rnd(2,4);a.mode='break';a.activity.textContent='🌙 退勤';a.activity.style.display='block';return}
+ if(phase==='arrival'){a.goal='arrival';a.phase='waiting';a.rest=rnd(1,3);a.mode='idle';a.activity.textContent='🌅 出勤';a.activity.style.display='block';return}
+ if(phase==='lunch'||phase==='meeting'){
+  const dest=phase==='lunch'?'lounge':'executive';
+  moveRoom(a,dest);
+  if(goSocial(a))return;
+ }
+ if(a.room!==a.home)moveRoom(a,a.home);
+ if(Math.random()<(personality.social?.23:.10)&&goSocial(a))return;
+
  const options=seatDefs[a.room].filter(([x,y])=>valid(a.room,x,y)&&!characters.some(c=>c!==a&&c.room===a.room&&c.seat&&Math.hypot(c.seat[0]-x,c.seat[1]-y)<5));
- if(Math.random()<.70&&options.length){
+ if(Math.random()<(personality.diligent?.88:personality.active?.62:.73)&&options.length){
   // Prefer an unoccupied seat, so working visibly happens at furniture.
   const seat=options[Math.floor(Math.random()*options.length)];
   if(setRoute(a,seat,'work',seat))return;
@@ -415,18 +463,35 @@ function chooseActivity(a){
 function arrived(a){
  if(a.route.length){a.target=a.route.shift();return}
  a.phase='waiting';
- if(a.goal==='work'){
+ if(a.goal==='social'){
+  a.mode='social';a.rest=rnd(5,10);a.activity.textContent=phase==='meeting'?'🗣️ 会議中':'💬 交流中';a.activity.style.display='block';
+  a.el.querySelector('.bubble').textContent=chatter[a.room][Math.floor(Math.random()*chatter[a.room].length)];
+  a.talk=performance.now()+rnd(1600,4200);
+ }else if(a.goal==='work'){
   a.mode='work';a.rest=rnd(6,12);a.direction='up';
   a.activity.textContent='💻 作業中';a.activity.style.display='block';
   if(Math.random()<.32)a.talk=performance.now()+1300;
  }else{
-  a.mode=Math.random()<.45?'break':'idle';a.rest=rnd(1.5,4);
+  a.mode=Math.random()<(temperament(a).active?.3:.5)?'break':'idle';a.rest=rnd(1.5,4);
   a.activity.textContent=a.mode==='break'?'☕ 休憩中':'';
   a.activity.style.display=a.mode==='break'?'block':'none';
  }
 }
 function tick(t){
  const dt=Math.min((t-last)/1000,.06);last=t;
+ if(!paused){
+  // 1実秒=ゲーム内2分。約8分で1日。高速再生で確認可能。
+  gameMinute=(gameMinute+dt*2*speed)%(24*60);
+ }
+ phase=currentPhase();
+ const hours=Math.floor(gameMinute/60),minutes=Math.floor(gameMinute%60);
+ clockEl.textContent='🕒 '+String(hours).padStart(2,'0')+':'+String(minutes).padStart(2,'0');
+ periodEl.textContent=phaseText(phase);
+ if(phaseKey!==phase){
+  phaseKey=phase;
+  for(const a of characters){a.rest=0;a.phase='waiting';a.route=[];a.seat=null;a.mode='idle';a.goal='roam';a.activity.style.display='none';}
+ }
+
  for(const a of characters){
   let walking=false;
   if(!paused){
@@ -446,20 +511,24 @@ function tick(t){
    }
   }
   a.el.classList.toggle('walk',walking);
-  const sitting=!paused&&a.mode==='work'&&a.phase==='waiting'&&a.rest>0;
+  const sitting=a.mode==='work'&&a.phase==='waiting'&&a.rest>0;
   a.el.classList.toggle('sitting',sitting);a.el.classList.toggle('working',sitting);
   if(walking)sprite(a,a.direction,Math.floor(t/260)%2);
   else sprite(a,a.direction,0,sitting);
   const [gx,gy]=globalPos(a.room,a.lx,a.ly);
   a.el.style.left=gx+'%';a.el.style.top=gy+'%';
   a.el.classList.toggle('talk',t<a.talk);
+  if(a.mode==='social'&&Math.random()<dt*.15){a.talk=t+1600;a.el.querySelector('.bubble').textContent=chatter[a.room][Math.floor(Math.random()*chatter[a.room].length)];}
  }
  requestAnimationFrame(tick);
 }
 requestAnimationFrame(tick);
 </script></body></html>'''
+    # 会社レベルはSupabase上で「完了」になった記録数から計算。ブラウザ内の演出回数では増やさない。
+    completed_count = sum(1 for item in dashboard_items if item.get('status') == '完了')
+    office_html = office_html.replace('__COMPLETED__', str(completed_count))
     office_html = office_html.replace('__STAFF__', staff_json)
-    components.html(office_html, height=920, scrolling=True)
+    components.html(office_html, height=980, scrolling=True)
 
     st.subheader('🪪 AI社員名簿')
     for dept, label in [('経営本部','👑 経営本部'),('システム開発部','💻 システム開発部'),('品質管理部','🧪 品質管理部')]:
