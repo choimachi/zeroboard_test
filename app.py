@@ -172,8 +172,8 @@ with tab_office:
     from html import escape
     import streamlit.components.v1 as components
 
-    st.header('🎮 AI OFFICE WORLD')
-    st.caption('会社の1階を見下ろすマップ。社員を選ぶと吹き出し・プロフィールが切り替わります。')
+    st.header('🎮 LIVING OFFICE — Ver.9')
+    st.caption('AI社員12人がオフィスを歩き回るゲーム風マップ。歩行と会話は演出で、実際のAI稼働状況ではありません。')
 
     OFFICE_STAFF = [
         {'name': '議長AI', 'dept': '経営本部', 'duty': '経営判断・会議統括', 'status': '稼働可能', 'line': 'CEO、次の議題を待っています。', 'personality': '冷静で全体を見渡すリーダー', 'hair': '#e5e7eb', 'shirt': '#a78bfa'},
@@ -257,8 +257,81 @@ with tab_office:
     .lounge{min-height:125px;background-color:#a7ba94}.lounge-inner{display:flex;justify-content:space-evenly;align-items:center;padding:18px;font-size:24px;color:#293b27}
     .footer{color:#bbf7d0;font-size:11px;text-align:center;padding-top:10px}
     """
+    # Ver.9: iframe内だけで動く軽量アニメーション。Streamlitの再実行・API呼び出しは不要。
+    # 部署に関係なく歩けるようにしつつ、各社員の机はVer.8のまま残す。
+    import json as _office_json
+    walkers = [{
+        'name': m['name'], 'line': m['line'], 'sprite': pixel_person(m, i),
+        'ready': m['status'] == '稼働可能'
+    } for i, m in enumerate(OFFICE_STAFF)]
+    walkers_json = _office_json.dumps(walkers, ensure_ascii=False).replace('<', '\\u003c')
+    living_css = """
+    .world{position:relative;overflow:hidden}
+    .walk-layer{position:absolute;inset:0;pointer-events:none;z-index:8;overflow:hidden}
+    .walker{position:absolute;width:47px;height:71px;transform:translate(-50%,-50%);will-change:left,top}
+    .walker img{display:block;width:31px;height:42px;margin:auto;image-rendering:pixelated;filter:drop-shadow(2px 3px 0 #14221e)}
+    .walker.moving img{animation:zb-step .27s steps(2,end) infinite}
+    .walker-name{background:#17212d;border:1px solid #f8fafc;text-align:center;color:white;font-size:8px;font-weight:700;white-space:nowrap;padding:1px}
+    .walker-talk{position:absolute;bottom:66px;left:50%;transform:translateX(-50%);width:126px;background:#fffbe8;border:2px solid #1e293b;box-shadow:2px 2px 0 #0f172a;color:#111827;font-size:10px;font-weight:700;padding:4px;text-align:center;display:none;z-index:12}
+    .walker.talking .walker-talk{display:block}
+    .walker.focus img{filter:drop-shadow(0 0 5px #fde047) drop-shadow(2px 3px 0 #14221e)}
+    @keyframes zb-step{0%{transform:translateY(0)}50%{transform:translateY(-4px)}100%{transform:translateY(0)}}
+    .motion-label{background:#17212d;color:#fef08a;text-align:center;padding:5px;font-size:11px;border:2px solid #eab308;margin-bottom:8px}
+    @media(prefers-reduced-motion:reduce){.walker.moving img{animation:none}}
+    """
+    living_js = r"""
+    <script>
+    (() => {
+      const staff = __STAFF_JSON__;
+      const world = document.querySelector('.world');
+      const layer = document.createElement('div'); layer.className = 'walk-layer';
+      world.appendChild(layer);
+      const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      const rand = (a,b) => a + Math.random() * (b-a);
+      const actors = staff.map((m,i) => {
+        const el = document.createElement('div'); el.className='walker';
+        const img = document.createElement('img');
+        img.src = 'data:image/svg+xml;base64,' + m.sprite;
+        img.alt = m.name;
+        const label=document.createElement('div'); label.className='walker-name';label.textContent=m.name;
+        const talk=document.createElement('div');talk.className='walker-talk';talk.textContent=m.line;
+        el.append(talk,img,label);layer.appendChild(el);
+        const w=world.clientWidth,h=world.clientHeight;
+        return {el, m, x:rand(40,w-40),y:rand(110,h-55),tx:rand(40,w-40),ty:rand(110,h-55),speed:rand(13,29),pause:rand(0,3),talkUntil:0};
+      });
+      let last=performance.now();
+      function tick(now){
+        const dt=Math.min((now-last)/1000,.06);last=now;
+        const w=world.clientWidth,h=world.clientHeight;
+        for(const a of actors){
+          const dx=a.tx-a.x,dy=a.ty-a.y,dist=Math.hypot(dx,dy);
+          if(!reduced && a.pause<=0 && dist>3){
+            const step=Math.min(dist,a.speed*dt);
+            a.x+=dx/dist*step;a.y+=dy/dist*step;
+            a.el.classList.add('moving');
+            a.el.querySelector('img').style.transform=dx<0?'scaleX(-1)':'';
+          }else{
+            a.el.classList.remove('moving');
+            a.pause-=dt;
+            if(a.pause<=0){
+              a.tx=rand(42,Math.max(43,w-42));a.ty=rand(110,Math.max(111,h-55));
+              a.pause=rand(1,4);
+              if(Math.random()<.38) a.talkUntil=now+rand(2200,4200);
+            }
+          }
+          a.el.classList.toggle('talking',now<a.talkUntil);
+          a.el.style.left=a.x+'px';a.el.style.top=a.y+'px';
+        }
+        if(!reduced)requestAnimationFrame(tick);
+      }
+      tick(performance.now());
+    })();
+    </script>
+    """.replace('__STAFF_JSON__', walkers_json)
+    world_css += living_css
+
     world_html = (f'<html><head><meta charset="utf-8"><style>{world_css}</style></head><body>'
-                  '<div class="world"><div class="title">🏢 ZEROBOARD AI COMPANY / 1F</div>'
+                  '<div class="world"><div class="title">🏢 ZEROBOARD AI COMPANY / 1F</div><div class="motion-label">🚶 LIVING OFFICE — 社員がオフィス内を散歩中（演出）</div>'
                   '<div class="grid">'
                   + render_room('経営本部', '👑 EXECUTIVE / 経営会議室', 'executive')
                   + '</div><div class="corridor">🚶 MAIN CORRIDOR 🚶</div><div class="grid">'
@@ -267,8 +340,8 @@ with tab_office:
                   + '</div><div class="corridor">☕ BREAK AREA ☕</div>'
                   + '<section class="room lounge"><div class="room-label">☕ LOUNGE / 休憩室</div>'
                   + '<div class="lounge-inner"><span>🪴</span><span>🛋️</span><span>☕</span><span>📚</span><span>🪴</span></div></section>'
-                  + '<div class="footer">● 既存のAI役職 / ○ 開発準備中 ｜ 選択中の社員に吹き出しを表示</div></div></body></html>')
-    components.html(world_html, height=840, scrolling=True)
+                  + '<div class="footer">● 既存のAI役職 / ○ 開発準備中 ｜ 選択中の社員に吹き出しを表示</div></div>' + living_js + '</body></html>')
+    components.html(world_html, height=885, scrolling=True)
     st.caption('※横幅の狭い端末ではマップ内を横スクロールできます。社員の選択は下のボタンから行えます。')
 
     st.subheader('👆 社員を選択')
@@ -295,7 +368,7 @@ with tab_office:
     c1.metric('👥 社員数（構想含む）', len(OFFICE_STAFF))
     c2.metric('🟢 既存AI役職', ready_count)
     c3.metric('🟡 実装待ち', len(OFFICE_STAFF) - ready_count)
-    st.caption('社員の動作・吹き出しは演出です。実際のAI処理とはまだ連動していません。マップ表示にAPI料金は発生しません。')
+    st.caption('Ver.9の歩行・吹き出しは画面内の演出です。AIの実稼働とは連動していません。アニメーション自体にAPI料金は発生しません。')
 
 with tab_dashboard:
     # ==================================================
