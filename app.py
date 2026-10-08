@@ -169,8 +169,8 @@ with tab_office:
     import base64
     import streamlit.components.v1 as components
 
-    st.header('🏙️ ZEROBOARD HD-2D OFFICE / Ver.12')
-    st.caption('リアル寄りのドット絵オフィス。家具と社員を別々に描画し、歩行中の衝突を抑えます。')
+    st.header('🎮 ZEROBOARD CHARACTER EVOLUTION / Ver.13')
+    st.caption('4方向・2コマ歩行、仕事・休憩・待機の動作を追加したオフィスです。')
 
     OFFICE_STAFF = [
         {'name': '議長AI', 'dept': '経営本部', 'duty': '経営判断・会議統括', 'status': '稼働可能', 'line': 'CEO、次の議題を待っています。', 'personality': '冷静で全体を見渡すリーダー', 'hair': '#e5e7eb', 'shirt': '#a78bfa'},
@@ -187,30 +187,57 @@ with tab_office:
         {'name': 'セキュリティAI', 'dept': '品質管理部', 'duty': '安全性レビュー', 'status': '準備中', 'line': '安全第一でいこう。', 'personality': '用心深い守護役', 'hair': '#334155', 'shirt': '#c084fc'},
     ]
 
-    def pixel_person(staff, index):
-        # 24x32 pixel art sprite; separate from background/furniture.
+    def pixel_person(staff, index, direction='down', frame=0, sitting=False):
+        """24x32 SVG sprite; all directions and frames have identical dimensions."""
         hair, shirt = staff['hair'], staff['shirt']
         skin = ['#f1c29c', '#d4a078', '#e9b78b', '#b98662'][index % 4]
         pants = ['#26364d', '#29374a', '#334155'][index % 3]
-        pixels = [
-            (8,2,8,2,hair),(6,4,12,3,hair),(5,7,14,3,hair),
-            (7,9,10,8,skin),(5,9,2,6,hair),(17,9,2,6,hair),
-            (9,12,2,2,'#253043'),(14,12,2,2,'#253043'),
-            (11,16,3,1,'#9f655d'),(7,17,10,2,'#9a6755'),
-            (6,19,12,7,shirt),(4,20,2,7,shirt),(18,20,2,7,shirt),
-            (4,27,2,2,skin),(18,27,2,2,skin),
-            (7,26,5,4,pants),(13,26,5,4,pants),
-            (6,30,6,2,'#20242e'),(13,30,6,2,'#20242e'),
-            (9,20,6,2,'#ffffff22'),(11,22,2,4,'#26364d'),
-        ]
-        rects = ''.join(f'<rect x="{x}" y="{y}" width="{w}" height="{h}" fill="{c}"/>' for x,y,w,h,c in pixels)
+        # Distinct haircuts and accessories for each employee.
+        haircut = index % 4
+        pixels = []
+        def r(x, y, w, h, color):
+            pixels.append((x, y, w, h, color))
+        r(7, 3, 10, 2, hair)
+        r(5, 5, 14, 4, hair)
+        r(6, 9, 12, 8, skin if direction != 'up' else hair)
+        if haircut == 0:
+            r(4, 6, 3, 10, hair); r(17, 6, 3, 10, hair)
+        elif haircut == 1:
+            r(6, 2, 4, 3, hair); r(12, 1, 5, 4, hair)
+        elif haircut == 2:
+            r(5, 7, 2, 7, hair); r(17, 7, 2, 7, hair)
+        else:
+            r(4, 4, 5, 4, hair); r(14, 4, 6, 5, hair)
+        if direction == 'down':
+            r(9, 12, 2, 2, '#253043'); r(14, 12, 2, 2, '#253043')
+            r(11, 16, 3, 1, '#9f655d')
+        elif direction in ('left', 'right'):
+            eye_x = 7 if direction == 'left' else 16
+            r(eye_x, 12, 2, 2, '#253043')
+        r(7, 18, 10, 9, shirt)
+        r(4, 20, 3, 6, shirt); r(17, 20, 3, 6, shirt)
+        r(4, 26, 3, 2, skin); r(17, 26, 3, 2, skin)
+        r(11, 20, 2, 6, '#f8fafc66')
+        if sitting:
+            r(6, 27, 12, 3, pants)
+            r(4, 29, 7, 2, '#1e293b'); r(13, 29, 7, 2, '#1e293b')
+        else:
+            leg_shift = 2 if frame else 0
+            r(7-leg_shift, 27, 5, 3, pants)
+            r(13+leg_shift, 27, 5, 3, pants)
+            r(6-leg_shift, 30, 6, 2, '#1e293b')
+            r(13+leg_shift, 30, 6, 2, '#1e293b')
+        rects = ''.join(f'<rect x="{x}" y="{y}" width="{w}" height="{h}" fill="{c}"/>'
+                        for x, y, w, h, c in pixels)
         svg = f'<svg xmlns="http://www.w3.org/2000/svg" width="96" height="128" viewBox="0 0 24 32" shape-rendering="crispEdges">{rects}</svg>'
         return base64.b64encode(svg.encode('utf-8')).decode('ascii')
 
     staff_json = json.dumps([
         {'name': m['name'], 'dept': m['dept'], 'duty': m['duty'],
          'status': m['status'], 'line': m['line'], 'personality': m['personality'],
-         'sprite': pixel_person(m, i)}
+         'sprites': {direction: [pixel_person(m, i, direction, frame) for frame in range(2)]
+                     for direction in ('down', 'up', 'left', 'right')},
+         'sitting': pixel_person(m, i, 'down', 0, True)}
         for i, m in enumerate(OFFICE_STAFF)
     ], ensure_ascii=False).replace('<', '\\u003c')
 
@@ -248,22 +275,22 @@ button:hover,button.active{background:#4c647b;border-color:#f6c97c}.level{border
 .board{width:24%;height:21%;border:5px solid #735a44;background:linear-gradient(140deg,#203b4b,#3e6975);box-shadow:0 4px 0 #333d40}
 .board:after{content:'PROJECTS';font:900 9px monospace;color:#d3e8e4;position:absolute;left:8%;top:20%}
 .actor{position:absolute;z-index:8;width:5.5%;min-width:24px;max-width:50px;transform:translate(-50%,-88%);cursor:pointer;text-align:center;filter:drop-shadow(1px 4px 2px #10101077)}
-.actor img{width:80%;display:block;margin:auto;image-rendering:pixelated;pointer-events:none}.actor.walk img{animation:step .24s steps(2,end) infinite}
+.actor img{width:80%;display:block;margin:auto;image-rendering:pixelated;pointer-events:none}.actor.walk img{will-change:contents}.actor.sitting img{transform:translateY(2px)}
 .actor .name{display:block;white-space:nowrap;width:max-content;max-width:115px;position:relative;left:50%;transform:translateX(-50%);font-size:clamp(7px,.9vw,11px);padding:1px 4px;background:#172638e8;border:1px solid #9eb0b8;color:#fff;overflow:hidden;text-overflow:ellipsis}
 .actor.selected .name{border-color:#ffd87e;color:#ffe7a7}.actor:focus-visible{outline:2px solid #ffd87e}
 .bubble{position:absolute;display:none;left:50%;bottom:105%;transform:translateX(-50%);background:#fdf4df;color:#273644;border:2px solid #405465;border-radius:4px;min-width:95px;max-width:140px;padding:5px;font-size:10px;line-height:1.4;box-shadow:2px 3px #0005}
 .actor.selected .bubble,.actor.talk .bubble{display:block}.actor.talk{z-index:9}.actor.selected{z-index:10}
 .panel{padding:14px;background:#1a2e40;border-top:2px solid #bd995f;min-height:93px;font-size:13px;line-height:1.8}.panel strong{color:#ffe09e}
 .note{font-size:11px;color:#b9cbd9;padding:10px 14px;background:#122236}
-@keyframes step{50%{transform:translateY(-3px)}}
+
 @media(max-width:650px){.viewport{padding:4px}.scene{min-height:290px;aspect-ratio:1.2}.room:after{font-size:8px}.actor .name{font-size:7px}.controls{padding:7px}.logo{font-size:15px}}
 @media(prefers-reduced-motion:reduce){.actor.walk img{animation:none}}
 </style></head><body><div class="shell">
-<div class="top"><span class="logo">🏙️ ZEROBOARD AI · HD-2D OFFICE</span><span class="small">LIVE PIXEL WORLD / Ver.12</span></div>
+<div class="top"><span class="logo">🏙️ ZEROBOARD AI · CHARACTER EVOLUTION</span><span class="small">LIVE PIXEL WORLD / Ver.13</span></div>
 <div class="controls"><span class="level">🏠 COMPANY LEVEL 1</span><button id="f1" class="active">1F 本社</button><button id="f2">2F 開発（見学）</button><button id="f3">3F 品質管理（見学）</button><button id="pause">⏸ 歩行停止</button></div>
 <div class="viewport"><div class="scene" id="scene"><div class="corridor"></div><div id="rooms"></div><div id="actors"></div></div></div>
 <div class="panel" id="panel"><strong>👑 ZEROBOARD AI COMPANY</strong><br>社員をクリックするとプロフィールが表示されます。</div>
-<div class="note">💡 ドット絵の家具・背景・社員は独立した描画要素です。社員は家具の当たり判定を避けて移動します。2F・3Fは将来イメージで、開発AIの自動作業やビル成長はまだ未実装です。歩行・会話は演出です。</div>
+<div class="note">💡 ドット絵の家具・背景・社員は独立した描画要素です。社員は家具の当たり判定を避けて移動します。4方向歩行・作業中・休憩中の姿はブラウザ内の演出です。2F・3Fは将来イメージで、開発AIの自動作業やビル成長はまだ未実装です。歩行・会話は演出です。</div>
 </div><script>
 const staff=__STAFF__;
 const roomsRoot=document.getElementById('rooms'),actorsRoot=document.getElementById('actors'),panel=document.getElementById('panel');
@@ -310,38 +337,73 @@ function build(n){currentFloor=n;roomsRoot.innerHTML='';actorsRoot.innerHTML='';
   const room=n===1?homes[s.dept]:(n===2?'development':'qa');const p=randomPoint(room);
   const el=document.createElement('div');el.className='actor';el.setAttribute('role','button');el.setAttribute('tabindex','0');el.setAttribute('aria-label',s.name+'のプロフィール');
   const bubble=document.createElement('div');bubble.className='bubble';bubble.textContent=s.line;
-  const img=document.createElement('img');img.src='data:image/svg+xml;base64,'+s.sprite;img.alt=s.name;
+  const img=document.createElement('img');img.src='data:image/svg+xml;base64,'+s.sprites.down[0];img.alt=s.name;
   const label=document.createElement('div');label.className='name';label.textContent=s.name;
   el.append(bubble,img,label);actorsRoot.appendChild(el);
-  const a={s,room,el,img,lx:p[0],ly:p[1],target:p,rest:rnd(.8,2.7),talk:0};characters.push(a);
+  const a={s,room,el,img,lx:p[0],ly:p[1],target:p,rest:rnd(.8,2.7),talk:0,mode:'idle',direction:'down',frame:-1,lastSprite:'',nextFrame:0};characters.push(a);
   const select=()=>{characters.forEach(c=>c.el.classList.remove('selected'));el.classList.add('selected');
    panel.innerHTML='<strong>'+esc(s.name)+'</strong>　'+(s.status==='稼働可能'?'🟢 経営AI役職':'🟡 開発準備中')+'<br>'+esc(s.dept)+'｜'+esc(s.duty)+'<br>性格：'+esc(s.personality)+'<br>💬 '+esc(s.line)};
   el.addEventListener('click',select);el.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();select()}});
  });
  panel.innerHTML='<strong>'+(['','🏠 1F 本社','💻 2F 開発フロア（将来イメージ）','🧪 3F 品質管理（将来イメージ）'][n])+'</strong><br>社員をクリックするとプロフィールを表示します。';
- try{localStorage.setItem('zeroboard_floor_v12',String(n))}catch(e){}
+ try{localStorage.setItem('zeroboard_floor_v13',String(n))}catch(e){}
 }
 for(let n=1;n<=3;n++)document.getElementById('f'+n).onclick=()=>build(n);
 const pause=document.getElementById('pause');pause.textContent=paused?'▶ 歩行再開':'⏸ 歩行停止';
 pause.onclick=()=>{paused=!paused;pause.textContent=paused?'▶ 歩行再開':'⏸ 歩行停止'};
-let initial=1;try{let n=Number(localStorage.getItem('zeroboard_floor_v12')||localStorage.getItem('zeroboard_floor_v11'));if([1,2,3].includes(n))initial=n}catch(e){}build(initial);
-function tick(t){const dt=Math.min((t-last)/1000,.06);last=t;
+let initial=1;try{let n=Number(localStorage.getItem('zeroboard_floor_v13')||localStorage.getItem('zeroboard_floor_v12')||localStorage.getItem('zeroboard_floor_v11'));if([1,2,3].includes(n))initial=n}catch(e){}build(initial);
+// Use static sprite frames instead of CSS image transforms/opacity changes.
+// The source is changed only when a frame actually changes, preventing blinking.
+function sprite(a, direction, frame, sitting=false){
+ const key=(sitting?'sit':direction+':'+frame);
+ if(a.lastSprite===key)return;
+ a.lastSprite=key;
+ a.img.src='data:image/svg+xml;base64,'+(sitting?a.s.sitting:a.s.sprites[direction][frame]);
+}
+function chooseActivity(a){
+ // The employee may stay still, work at a desk, or take a short break.
+ const r=Math.random();
+ a.mode=r<.26?'work':(r<.42?'break':'idle');
+ a.rest=a.mode==='work'?rnd(3,6):(a.mode==='break'?rnd(2,5):rnd(.7,2));
+ if(a.mode==='work')a.target=nextTarget(a);
+}
+function tick(t){
+ const dt=Math.min((t-last)/1000,.06);last=t;
  for(const a of characters){
+  let walking=false;
   if(!paused){
-   if(a.rest>0){a.rest=Math.max(0,a.rest-dt);a.el.classList.remove('walk')}
-   else{
-    let dx=a.target[0]-a.lx,dy=a.target[1]-a.ly,d=Math.hypot(dx,dy);
-    if(d<.7){a.rest=rnd(1,3.2);a.target=nextTarget(a);a.el.classList.remove('walk');if(Math.random()<.12)a.talk=t+1500}
-    else{const step=Math.min(d,9*dt);const nx=a.lx+dx/d*step,ny=a.ly+dy/d*step;
-     if(valid(a.room,nx,ny)){a.lx=nx;a.ly=ny;a.el.classList.add('walk');a.img.style.transform=dx<0?'scaleX(-1)':''}
-     else{a.target=nextTarget(a);a.rest=.2;a.el.classList.remove('walk')}
+   if(a.rest>0){
+    a.rest=Math.max(0,a.rest-dt);
+    if(a.rest===0){a.mode='idle';a.target=nextTarget(a)}
+   }else{
+    const dx=a.target[0]-a.lx,dy=a.target[1]-a.ly,d=Math.hypot(dx,dy);
+    if(d<.7){chooseActivity(a);if(Math.random()<.08)a.talk=t+1300}
+    else{
+     const step=Math.min(d,8*dt),nx=a.lx+dx/d*step,ny=a.ly+dy/d*step;
+     if(valid(a.room,nx,ny)){
+      a.lx=nx;a.ly=ny;walking=true;
+      a.direction=Math.abs(dx)>Math.abs(dy)?(dx<0?'left':'right'):(dy<0?'up':'down');
+     }else{a.target=nextTarget(a);a.rest=.3}
     }
    }
-  }else a.el.classList.remove('walk');
-  const [gx,gy]=globalPos(a.room,a.lx,a.ly);a.el.style.left=gx+'%';a.el.style.top=gy+'%';a.el.classList.toggle('talk',t<a.talk);
+  }
+  if(walking){
+   a.el.classList.add('walk');a.el.classList.remove('sitting');
+   const frame=Math.floor(t/240)%2;
+   sprite(a,a.direction,frame);
+  }else{
+   a.el.classList.remove('walk');
+   const sitting=!paused&&a.mode==='work'&&a.rest>0;
+   a.el.classList.toggle('sitting',sitting);
+   sprite(a,a.direction,0,sitting);
+  }
+  const [gx,gy]=globalPos(a.room,a.lx,a.ly);
+  a.el.style.left=gx+'%';a.el.style.top=gy+'%';
+  a.el.classList.toggle('talk',t<a.talk);
  }
- requestAnimationFrame(tick)
-}requestAnimationFrame(tick);
+ requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
 </script></body></html>'''
     office_html = office_html.replace('__STAFF__', staff_json)
     components.html(office_html, height=920, scrolling=True)
