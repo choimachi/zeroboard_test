@@ -165,12 +165,12 @@ tab_office, tab_dashboard, tab_meeting, tab_memory = st.tabs([
 ])
 
 with tab_office:
-    # Ver.11: フロア制オフィス。部屋・家具・社員を別要素で描画。
+    # Ver.16: cinematic diorama / crowd-aware behavior, keeping business tabs unchanged.
     import base64
     import streamlit.components.v1 as components
 
-    st.header('🎮 ZEROBOARD AI COMPANY LIFE / Ver.15')
-    st.caption('ゲーム内時計・社員交流・個性・実績ベースの会社レベルを追加。仕事の動作は演出です。')
+    st.header('🎮 ZEROBOARD AI / Ver.16 — CINEMATIC OFFICE')
+    st.caption('奥行きのあるオフィス・自然光・社員の分散配置。社員の仕事は演出です。')
 
     OFFICE_STAFF = [
         {'name': '議長AI', 'dept': '経営本部', 'duty': '経営判断・会議統括', 'status': '稼働可能', 'line': 'CEO、次の議題を待っています。', 'personality': '冷静で全体を見渡すリーダー', 'hair': '#e5e7eb', 'shirt': '#a78bfa'},
@@ -300,12 +300,84 @@ button:hover,button.active{background:#4c647b;border-color:#f6c97c}.level{border
 .activity{position:absolute;bottom:-14px;left:50%;transform:translateX(-50%);font-size:9px;white-space:nowrap;background:#102a37d9;color:#d8f8e8;padding:1px 4px;border:1px solid #3d8b86;pointer-events:none}
 .glass{position:absolute;inset:0;pointer-events:none;border:3px solid #9bd2dc44;box-shadow:inset 0 0 16px #b2e4eb25;z-index:4}
 .worklamp{position:absolute;width:12px;height:12px;background:#ffdf91;border-radius:50%;box-shadow:0 0 24px 12px #ffe4a32a;pointer-events:none}
+
+/* Ver.16 — cinematic pixel diorama. All furniture remains interactive-safe DOM. */
+:root{--navy:#0b1421;--gold:#f3ca85;--text:#f4f0e9}
+html,body{background:radial-gradient(ellipse at 55% 0%,#27394b,#080f1b 75%)}
+.shell{border:1px solid #8d765c;border-radius:12px;overflow:hidden;box-shadow:0 28px 75px #000c,0 0 0 4px #0b1929}
+.top{background:linear-gradient(110deg,#132539,#2e3e50 60%,#152235);padding:17px 22px;border-bottom:1px solid #b88e59}
+.logo{font-size:clamp(15px,2vw,24px);text-shadow:0 2px 8px #0009}
+.controls{background:#132234;gap:9px;padding:12px 17px;border-bottom:1px solid #4e6375}
+button{background:linear-gradient(#30485d,#1a2d42);border:1px solid #71879b;border-radius:7px;box-shadow:0 3px 0 #07111e}
+button:hover,button.active{background:linear-gradient(#7e6851,#4a4a4c);border-color:#ffd89c}
+.level{background:linear-gradient(#27323c,#1b2631);border-color:#8e795e;color:#ffe2ad}
+.viewport{padding:23px 22px 30px;background:radial-gradient(ellipse at 50% 10%,#3a4853 0,#111e2c 75%)}
+.scene{border:12px solid #263c4c;border-radius:10px;aspect-ratio:1.68;min-height:420px;overflow:hidden;
+ background:repeating-linear-gradient(90deg,#24384b 0 25px,#1b2d40 26px 28px);
+ box-shadow:0 12px 0 #0b1725,0 22px 22px #000b,inset 0 0 0 4px #a88762}
+.scene:before{z-index:12;background:linear-gradient(125deg,#fff2 0%,transparent 31%,#f7d79b10 54%,transparent 78%);mix-blend-mode:screen}
+.scene:after{content:'';position:absolute;inset:0;pointer-events:none;z-index:15;
+ background:radial-gradient(ellipse at 50% 45%,transparent 52%,#08101e70 100%)}
+.room{border:7px solid #354c5d;border-top-width:12px;border-radius:3px;
+ background-color:#cbb38d;background-image:linear-gradient(145deg,#fff8,transparent 48%),
+ repeating-linear-gradient(0deg,#816c5366 0 2px,transparent 2px 29px),
+ repeating-linear-gradient(90deg,#8e785b77 0 2px,#d7c09b 2px 29px);
+ box-shadow:inset 0 0 0 3px #e8d3aa,inset 0 25px 28px #16202a60,0 6px 0 #172633}
+.room:before{height:20%;background:linear-gradient(150deg,#27445a,#46687b 44%,#243c51 45%,#36536a);
+ border-bottom:7px solid #b98956;box-shadow:0 7px 10px #0004}
+.room:after{top:6px;left:7px;background:#15283de8;border-left:4px solid #efbe78;border-radius:0 4px 4px 0;
+ font-size:clamp(9px,1.05vw,13px);padding:3px 8px;letter-spacing:.06em}
+.room.executive{background-color:#c5ae8a}
+.room.development{background-color:#a3b7b1}
+.room.qa{background-color:#adb2b1}
+.room.lounge{background-color:#b99c86}
+.room.executive:before{background:linear-gradient(125deg,#243d57,#557184 45%,#1d344b 46%)}
+.room.development:before{background:linear-gradient(125deg,#244c53,#628f8e 45%,#1e3d4d 46%)}
+.room.qa:before{background:linear-gradient(125deg,#354758,#74858d 45%,#273c50 46%)}
+.room.lounge:before{background:linear-gradient(125deg,#4c3f46,#8e7068 45%,#493944 46%)}
+.window{border:5px solid #2b4658;border-radius:3px;
+ background:linear-gradient(126deg,#e2f6ed 0 13%,#83c4d3 14% 31%,#d1e9de 32% 37%,#5b98b5 38% 60%,#284e6a 61%);
+ box-shadow:0 7px 0 #1b3444,0 11px 9px #0005,inset 0 0 0 2px #bde5ed}
+.desk{border:3px solid #624631;background:linear-gradient(#d4ab78 0 24%,#98704e 25% 85%,#60432e 86%);
+ box-shadow:0 8px 0 #473729,4px 13px 8px #0006}
+.desk:before{border:3px solid #213743;background:linear-gradient(135deg,#152f47,#2b7285 70%,#5cc2c6);
+ box-shadow:0 4px 0 #142736,0 0 16px #4ddde644}
+.desk:after{background:linear-gradient(#4d6879,#1e3444);border-color:#20303d}
+.table{border:5px solid #70523e;background:linear-gradient(145deg,#d8b28a,#a1744f 65%,#745238);
+ box-shadow:0 9px 0 #4b3427,5px 14px 10px #0006}
+.sofa{background:linear-gradient(#e3a27d 0 34%,#ae745c 35% 75%,#855643 76%);box-shadow:0 8px #4f3b34,4px 12px 10px #0007}
+.chair{background:linear-gradient(90deg,#26394c,#55788a,#23384a);box-shadow:0 5px 0 #192c3a,2px 8px 5px #0008}
+.plant{filter:drop-shadow(2px 5px 2px #0008)}
+.board{border-color:#75573d;box-shadow:0 6px 0 #36414b,4px 10px 8px #0005}
+.rug{border-color:#b48b65;opacity:.8}
+.corridor{background:repeating-linear-gradient(90deg,#405467 0 34px,#637b87 35px 37px);box-shadow:0 2px 8px #0008}
+.actor{width:4.8%;min-width:20px;max-width:43px;filter:drop-shadow(2px 6px 3px #0009);transition:filter .12s}
+.actor img{width:88%;filter:contrast(1.07) saturate(1.08)}
+.actor .name{display:none;font-size:10px;bottom:0;background:#10263be8;border:1px solid #d6b478;border-radius:4px}
+.actor:hover .name,.actor.selected .name,.actor:focus-visible .name{display:block}
+.actor .activity{display:none!important}
+.actor.selected .activity{display:block!important;bottom:-19px;background:#163d43}
+.actor .bubble{font-size:10px;min-width:100px;max-width:130px;z-index:3;box-shadow:2px 4px 6px #0009}
+.actor.talk .bubble{display:none}
+.actor.selected .bubble{display:block}
+.panel{background:linear-gradient(110deg,#1d3447,#152638);border-top:2px solid #b58a54;padding:17px 20px}
+.note{background:#0e1e2d;color:#b3c4d1;padding:12px 20px}
+.scene.evening .room{filter:sepia(.13) brightness(.84)}
+.scene.night .room{filter:brightness(.58) saturate(.83)}
+.scene.night .desk:before{box-shadow:0 4px 0 #142736,0 0 22px 8px #4bc9e56b}
+.scene.night .window{filter:brightness(.5) saturate(1.4)}
+.scene.night .actor{filter:drop-shadow(1px 4px 4px #000) brightness(.86)}
+.scene.evening:before{background:linear-gradient(130deg,#ffa65340,transparent 60%)}
+.scene.night:before{background:linear-gradient(140deg,#15345570,transparent 70%)}
+@media(max-width:650px){.viewport{padding:8px}.scene{min-height:320px;aspect-ratio:1.2;border-width:6px}
+ .room{border-width:4px;border-top-width:8px}.room:after{font-size:8px;max-width:95%;white-space:nowrap;overflow:hidden}
+ .actor{min-width:19px}.top{padding:12px}.controls{padding:8px}}
 </style></head><body><div class="shell">
-<div class="top"><span class="logo">🏙️ ZEROBOARD AI · COMPANY LIFE</span><span class="small">LIVE PIXEL WORLD / Ver.15</span></div>
+<div class="top"><span class="logo">🏙️ ZEROBOARD · CINEMATIC OFFICE</span><span class="small">PIXEL STUDIO / Ver.16</span></div>
 <div class="controls"><span class="level" id="companyLevel">🏠 COMPANY LEVEL 1</span><span class="level" id="companyXP">📈 実績 0 / 5</span><span class="level" id="clock">🕒 09:00</span><span class="level" id="period">🌅 出勤</span><button id="f1" class="active">1F 本社</button><button id="f2">2F 開発（見学）</button><button id="f3">3F 品質管理（見学）</button><button id="pause">⏸ 動作停止</button><button id="speed">⏩ 時間 x1</button></div>
 <div class="viewport"><div class="scene" id="scene"><div class="corridor"></div><div id="rooms"></div><div id="actors"></div></div></div>
 <div class="panel" id="panel"><strong>👑 ZEROBOARD AI COMPANY</strong><br>社員をクリックするとプロフィールが表示されます。</div>
-<div class="note">💡 Ver.15：ゲーム内時間に合わせて勤務・昼休み・交流・夕方の会議・退勤を演出します。時間 x4 で動作を確認できます。会社LEVELはSupabaseで「完了」になった経営判断の件数から計算し、会議を開いただけでは増えません。2F・3Fは見学用で、自動開発やフロア解放は未実装です。社員の作業・会話は視覚演出です。</div>
+<div class="note">💡 Ver.16：部署別に社員を分散し、重なりを抑えました。社員の名前はクリックで表示します。ゲーム内時間で照明が変化します。時間 x4 で動作を確認できます。会社LEVELはSupabaseで「完了」になった経営判断の件数から計算し、会議を開いただけでは増えません。2F・3Fは見学用で、自動開発やフロア解放は未実装です。社員の作業・会話は視覚演出です。</div>
 </div><script>
 const staff=__STAFF__;
 const completedCount=__COMPLETED__;
@@ -319,6 +391,7 @@ let paused=reduce,last=performance.now(),currentFloor=1,characters=[];
 let gameMinute=8*60, speed=1, phase='arrival', phaseKey='';
 const clockEl=document.getElementById('clock'),periodEl=document.getElementById('period');
 const speedBtn=document.getElementById('speed');
+const scene=document.getElementById('scene');
 speedBtn.onclick=()=>{speed=speed===1?4:speed===4?12:1;speedBtn.textContent='⏩ 時間 x'+speed};
 const chatter={
  executive:['次の施策を相談しよう','数字の確認はできた？','CEOへの報告をまとめよう'],
@@ -356,7 +429,16 @@ function valid(room,lx,ly){
  }
  return true;
 }
-function randomPoint(room){for(let k=0;k<100;k++){const lx=rnd(9,91),ly=rnd(31,90);if(valid(room,lx,ly))return [lx,ly]}return [65,44]}
+function farEnough(room,p,self=null,minDist=15){
+ return !characters.some(c=>c!==self&&c.room===room&&Math.hypot(c.lx-p[0],c.ly-p[1])<minDist);
+}
+function randomPoint(room,self=null){
+ for(let k=0;k<130;k++){const lx=rnd(9,91),ly=rnd(31,90),p=[lx,ly];
+  if(valid(room,lx,ly)&&farEnough(room,p,self,12))return p;
+ }
+ for(let k=0;k<90;k++){const p=[rnd(9,91),rnd(31,90)];if(valid(room,...p))return p}
+ return [65,44];
+}
 // Waypoints stay in walkable cells; direct paths are tested before each step.
 function clearPath(room,a,b){const distance=Math.hypot(a[0]-b[0],a[1]-b[1]);const n=Math.max(2,Math.ceil(distance/2));for(let i=0;i<=n;i++){const x=a[0]+(b[0]-a[0])*i/n,y=a[1]+(b[1]-a[1])*i/n;if(!valid(room,x,y))return false}return true}
 function nextTarget(a){for(let k=0;k<45;k++){const p=randomPoint(a.room);if(clearPath(a.room,[a.lx,a.ly],p))return p}return [a.lx,a.ly]}
@@ -385,12 +467,12 @@ function build(n){currentFloor=n;roomsRoot.innerHTML='';actorsRoot.innerHTML='';
   el.addEventListener('click',select);el.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();select()}});
  });
  panel.innerHTML='<strong>'+(['','🏠 1F 本社','💻 2F 開発フロア（将来イメージ）','🧪 3F 品質管理（将来イメージ）'][n])+'</strong><br>社員をクリックするとプロフィールを表示します。';
- try{localStorage.setItem('zeroboard_floor_v15',String(n))}catch(e){}
+ try{localStorage.setItem('zeroboard_floor_v16',String(n))}catch(e){}
 }
 for(let n=1;n<=3;n++)document.getElementById('f'+n).onclick=()=>build(n);
 const pause=document.getElementById('pause');pause.textContent=paused?'▶ 歩行再開':'⏸ 歩行停止';
 pause.onclick=()=>{paused=!paused;pause.textContent=paused?'▶ 歩行再開':'⏸ 歩行停止'};
-let initial=1;try{let n=Number(localStorage.getItem('zeroboard_floor_v15')||localStorage.getItem('zeroboard_floor_v14')||localStorage.getItem('zeroboard_floor_v12')||localStorage.getItem('zeroboard_floor_v11'));if([1,2,3].includes(n))initial=n}catch(e){}build(initial);
+let initial=1;try{let n=Number(localStorage.getItem('zeroboard_floor_v16')||localStorage.getItem('zeroboard_floor_v14')||localStorage.getItem('zeroboard_floor_v12')||localStorage.getItem('zeroboard_floor_v11'));if([1,2,3].includes(n))initial=n}catch(e){}build(initial);
 // Use static sprite frames instead of CSS image transforms/opacity changes.
 // The source is changed only when a frame actually changes, preventing blinking.
 function sprite(a, direction, frame, sitting=false){
@@ -425,7 +507,7 @@ function setRoute(a,point,goal,seat=null){
 function moveRoom(a,room){
  if(a.room===room)return;
  a.room=room;
- const p=randomPoint(room);a.lx=p[0];a.ly=p[1];a.target=p;
+ const p=randomPoint(room,a);a.lx=p[0];a.ly=p[1];a.target=p;
  a.route=[];a.seat=null;a.phase='waiting';a.mode='idle';a.rest=rnd(.3,1);
  a.lastSprite='';a.activity.style.display='none';
  // 別室への移動は現段階では廊下を歩かず、室内に再配置する演出。
@@ -434,8 +516,8 @@ function goSocial(a){
  const companions=characters.filter(c=>c!==a&&c.room===a.room&&c.goal==='social');
  const base=companions.length?companions[0]:null;
  for(let i=0;i<25;i++){
-  const p=base?[base.lx+rnd(-13,13),base.ly+rnd(-12,12)]:randomPoint(a.room);
-  if(valid(a.room,...p)&&setRoute(a,p,'social'))return true;
+  const p=base?[base.lx+rnd(-22,22),base.ly+rnd(-18,18)]:randomPoint(a.room,a);
+  if(valid(a.room,...p)&&farEnough(a.room,p,a,13)&&setRoute(a,p,'social'))return true;
  }
  return false;
 }
@@ -443,13 +525,18 @@ function chooseActivity(a){
  const personality=temperament(a);
  if(phase==='leave'){a.goal='leave';a.phase='waiting';a.rest=rnd(2,4);a.mode='break';a.activity.textContent='🌙 退勤';a.activity.style.display='block';return}
  if(phase==='arrival'){a.goal='arrival';a.phase='waiting';a.rest=rnd(1,3);a.mode='idle';a.activity.textContent='🌅 出勤';a.activity.style.display='block';return}
- if(phase==='lunch'||phase==='meeting'){
-  const dest=phase==='lunch'?'lounge':'executive';
-  moveRoom(a,dest);
-  if(goSocial(a))return;
- }
- if(a.room!==a.home)moveRoom(a,a.home);
- if(Math.random()<(personality.social?.23:.10)&&goSocial(a))return;
+ // Breaks are staggered: maximum three staff in lounge, not all twelve.
+ // Meetings involve executives only; development and QA remain in their own rooms.
+ if(phase==='lunch'){
+  const loungeCount=characters.filter(c=>c!==a&&c.room==='lounge').length;
+  const wantsBreak=(staff.indexOf(a.s)%4===Math.floor(gameMinute/15)%4);
+  if(wantsBreak&&loungeCount<3){moveRoom(a,'lounge');if(goSocial(a))return;}
+  else if(a.room==='lounge')moveRoom(a,a.home);
+ }else if(phase==='meeting'&&a.s.dept==='経営本部'){
+  moveRoom(a,'executive');
+  if(Math.random()<.5&&goSocial(a))return;
+ }else if(a.room!==a.home){moveRoom(a,a.home);}
+ if(Math.random()<(personality.social?.10:.04)&&goSocial(a))return;
 
  const options=seatDefs[a.room].filter(([x,y])=>valid(a.room,x,y)&&!characters.some(c=>c!==a&&c.room===a.room&&c.seat&&Math.hypot(c.seat[0]-x,c.seat[1]-y)<5));
  if(Math.random()<(personality.diligent?.88:personality.active?.62:.73)&&options.length){
@@ -457,7 +544,7 @@ function chooseActivity(a){
   const seat=options[Math.floor(Math.random()*options.length)];
   if(setRoute(a,seat,'work',seat))return;
  }
- for(let i=0;i<18;i++){if(setRoute(a,randomPoint(a.room),'roam'))return}
+ for(let i=0;i<18;i++){if(setRoute(a,randomPoint(a.room,a),'roam'))return}
  a.phase='waiting';a.rest=1;
 }
 function arrived(a){
@@ -487,6 +574,8 @@ function tick(t){
  const hours=Math.floor(gameMinute/60),minutes=Math.floor(gameMinute%60);
  clockEl.textContent='🕒 '+String(hours).padStart(2,'0')+':'+String(minutes).padStart(2,'0');
  periodEl.textContent=phaseText(phase);
+ scene.classList.toggle('night',hours>=18||hours<6);
+ scene.classList.toggle('evening',hours>=16&&hours<18);
  if(phaseKey!==phase){
   phaseKey=phase;
   for(const a of characters){a.rest=0;a.phase='waiting';a.route=[];a.seat=null;a.mode='idle';a.goal='roam';a.activity.style.display='none';}
@@ -500,10 +589,10 @@ function tick(t){
     if(d<.6){a.lx=a.target[0];a.ly=a.target[1];arrived(a)}
     else{
      const step=Math.min(d,9*dt),nx=a.lx+dx/d*step,ny=a.ly+dy/d*step;
-     if(valid(a.room,nx,ny)){
+     if(valid(a.room,nx,ny)&&farEnough(a.room,[nx,ny],a,7)){
       a.lx=nx;a.ly=ny;walking=true;
       a.direction=Math.abs(dx)>Math.abs(dy)?(dx<0?'left':'right'):(dy<0?'up':'down');
-     }else{a.phase='waiting';a.route=[];a.seat=null;a.rest=.5}
+     }else{a.phase='waiting';a.route=[];a.seat=null;a.rest=rnd(.6,1.7)}
     }
    }else{
     a.rest=Math.max(0,a.rest-dt);
@@ -517,7 +606,7 @@ function tick(t){
   else sprite(a,a.direction,0,sitting);
   const [gx,gy]=globalPos(a.room,a.lx,a.ly);
   a.el.style.left=gx+'%';a.el.style.top=gy+'%';
-  a.el.classList.toggle('talk',t<a.talk);
+  a.el.classList.toggle('talk',false);
   if(a.mode==='social'&&Math.random()<dt*.15){a.talk=t+1600;a.el.querySelector('.bubble').textContent=chatter[a.room][Math.floor(Math.random()*chatter[a.room].length)];}
  }
  requestAnimationFrame(tick);
@@ -528,7 +617,7 @@ requestAnimationFrame(tick);
     completed_count = sum(1 for item in dashboard_items if item.get('status') == '完了')
     office_html = office_html.replace('__COMPLETED__', str(completed_count))
     office_html = office_html.replace('__STAFF__', staff_json)
-    components.html(office_html, height=980, scrolling=True)
+    components.html(office_html, height=1060, scrolling=True)
 
     st.subheader('🪪 AI社員名簿')
     for dept, label in [('経営本部','👑 経営本部'),('システム開発部','💻 システム開発部'),('品質管理部','🧪 品質管理部')]:
