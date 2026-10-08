@@ -169,8 +169,8 @@ with tab_office:
     import base64
     import streamlit.components.v1 as components
 
-    st.header('🏢 ZEROBOARD BUILDING / Ver.11')
-    st.caption('社員12人のいる会社ビル。フロアの拡張は今後の成果と連動予定です。')
+    st.header('🏙️ ZEROBOARD HD-2D OFFICE / Ver.12')
+    st.caption('リアル寄りのドット絵オフィス。家具と社員を別々に描画し、歩行中の衝突を抑えます。')
 
     OFFICE_STAFF = [
         {'name': '議長AI', 'dept': '経営本部', 'duty': '経営判断・会議統括', 'status': '稼働可能', 'line': 'CEO、次の議題を待っています。', 'personality': '冷静で全体を見渡すリーダー', 'hair': '#e5e7eb', 'shirt': '#a78bfa'},
@@ -188,113 +188,163 @@ with tab_office:
     ]
 
     def pixel_person(staff, index):
-        # 16x20ピクセルの自作SVG社員キャラ
-        hair = staff['hair']
-        shirt = staff['shirt']
-        skin = ['#f3c69a', '#d9a477', '#f0bd91', '#e9b48b'][index % 4]
-        pants = '#1e293b'
+        # 24x32 pixel art sprite; separate from background/furniture.
+        hair, shirt = staff['hair'], staff['shirt']
+        skin = ['#f1c29c', '#d4a078', '#e9b78b', '#b98662'][index % 4]
+        pants = ['#26364d', '#29374a', '#334155'][index % 3]
         pixels = [
-            (5, 1, 6, 2, hair), (4, 3, 8, 2, hair),
-            (5, 5, 6, 4, skin), (4, 5, 1, 3, hair), (11, 5, 1, 3, hair),
-            (6, 6, 1, 1, '#1f2937'), (9, 6, 1, 1, '#1f2937'),
-            (7, 8, 2, 1, '#b45353'),
-            (4, 9, 8, 6, shirt), (2, 10, 2, 5, skin), (12, 10, 2, 5, skin),
-            (5, 15, 3, 3, pants), (9, 15, 3, 3, pants),
-            (4, 18, 4, 2, '#111827'), (9, 18, 4, 2, '#111827'),
+            (8,2,8,2,hair),(6,4,12,3,hair),(5,7,14,3,hair),
+            (7,9,10,8,skin),(5,9,2,6,hair),(17,9,2,6,hair),
+            (9,12,2,2,'#253043'),(14,12,2,2,'#253043'),
+            (11,16,3,1,'#9f655d'),(7,17,10,2,'#9a6755'),
+            (6,19,12,7,shirt),(4,20,2,7,shirt),(18,20,2,7,shirt),
+            (4,27,2,2,skin),(18,27,2,2,skin),
+            (7,26,5,4,pants),(13,26,5,4,pants),
+            (6,30,6,2,'#20242e'),(13,30,6,2,'#20242e'),
+            (9,20,6,2,'#ffffff22'),(11,22,2,4,'#26364d'),
         ]
-        rects = ''.join(f'<rect x="{x}" y="{y}" width="{w}" height="{h}" fill="{color}"/>'
-                        for x, y, w, h, color in pixels)
-        svg = f'<svg xmlns="http://www.w3.org/2000/svg" width="96" height="120" viewBox="0 0 16 20" shape-rendering="crispEdges">{rects}</svg>'
+        rects = ''.join(f'<rect x="{x}" y="{y}" width="{w}" height="{h}" fill="{c}"/>' for x,y,w,h,c in pixels)
+        svg = f'<svg xmlns="http://www.w3.org/2000/svg" width="96" height="128" viewBox="0 0 24 32" shape-rendering="crispEdges">{rects}</svg>'
         return base64.b64encode(svg.encode('utf-8')).decode('ascii')
-
-
 
     staff_json = json.dumps([
         {'name': m['name'], 'dept': m['dept'], 'duty': m['duty'],
          'status': m['status'], 'line': m['line'], 'personality': m['personality'],
          'sprite': pixel_person(m, i)}
         for i, m in enumerate(OFFICE_STAFF)
-    ], ensure_ascii=False).replace('<', '\u003c')
+    ], ensure_ascii=False).replace('<', '\\u003c')
 
-    office_html = r'''<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1"/>
+    office_html = r'''<!doctype html><html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
-*{box-sizing:border-box}body{margin:0;background:#101a29;color:#f0f5ff;font-family:system-ui,'Noto Sans JP',sans-serif}
-.shell{max-width:1200px;margin:auto;border:2px solid #40566b;background:#122238}
-.bar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;background:#172c43;padding:12px 15px;border-bottom:2px solid #476783}
-.logo{font-size:18px;font-weight:900;color:#ffe6a3}.hint{font-size:12px;color:#b8d2e7}
-.controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:12px;background:#0e1c2f}
-button{background:#254663;color:#eaf6ff;border:1px solid #6984a0;padding:8px 12px;border-radius:5px;font-weight:700;cursor:pointer}
-button:hover,button.active{background:#3b6e8c;border-color:#eac879}button:disabled{opacity:.46;cursor:not-allowed}
-.tag{background:#1e3b4d;padding:7px 10px;border:1px solid #436478;font-size:12px;border-radius:5px}
-.scene{position:relative;width:100%;aspect-ratio:1.8;background:#bdab85;border:10px solid #384a54;overflow:hidden;min-height:380px}
-.floor{position:absolute;inset:0;background:repeating-linear-gradient(0deg,transparent 0 27px,#ffffff14 28px 29px),repeating-linear-gradient(90deg,#d0ba92 0 27px,#aa916d33 28px 29px)}
-.room{position:absolute;border:7px solid #546270;background:#c9b593;box-shadow:inset 0 0 0 3px #f0dbad,3px 4px 0 #263644}
-.room:before{content:attr(data-name);position:absolute;top:5px;left:8px;z-index:2;color:#ffe5a2;background:#1b3042;padding:4px 8px;font-size:clamp(9px,1.3vw,14px);font-weight:900;border:2px solid #b99850}
-.room.executive{left:2%;top:3%;width:46%;height:57%}.room.development{left:51%;top:3%;width:47%;height:57%}
-.room.qa{left:2%;top:65%;width:46%;height:33%}.room.lounge{left:51%;top:65%;width:47%;height:33%}
-.room[data-floor="2"]{background:#b7c7ce}.room[data-floor="3"]{background:#b6c7ad}
-.furniture{position:absolute;inset:0;pointer-events:none}
-.desk{position:absolute;width:12%;height:12%;background:#835635;border:3px solid #4d3329;box-shadow:0 4px 0 #422b24}
-.desk:after{content:'▣';display:block;text-align:center;color:#8ff5e8;background:#293a47;border:2px solid #647c88;width:38%;height:75%;margin:-15% auto 0;font-size:12px}
-.table{position:absolute;width:35%;height:14%;background:#8b603e;border:4px solid #513926;border-radius:15px;left:31%;top:44%}
-.sofa{position:absolute;background:#97694c;border:4px solid #68462d;border-radius:7px;width:32%;height:16%;left:17%;top:52%}
-.plant{position:absolute;font-size:22px;right:4%;bottom:7%}.lamp{position:absolute;right:7%;top:15%;font-size:21px}
-.actor{position:absolute;z-index:5;transform:translate(-50%,-90%);width:7%;max-width:58px;min-width:26px;text-align:center;cursor:pointer;filter:drop-shadow(1px 2px 1px #0008)}
-.actor img{display:block;width:72%;margin:auto;image-rendering:pixelated}.actor.walk img{animation:bob .28s steps(2,end) infinite}
-.actor .name{font-size:clamp(7px,.95vw,11px);white-space:nowrap;background:#122236e8;color:white;border:1px solid #d0dce7;padding:2px}
-.actor.selected .name{border-color:#f9d46c;color:#ffe79e}
-.bubble{position:absolute;display:none;bottom:100%;left:50%;transform:translateX(-50%);background:#fffdf1;color:#233244;border:2px solid #22364c;padding:5px;font-size:10px;min-width:100px;max-width:145px;box-shadow:2px 2px #334155}
-.actor.selected .bubble,.actor.talk .bubble{display:block}
-.panel{padding:12px;background:#192f45;min-height:83px;border-top:2px solid #45647d;font-size:13px;line-height:1.8}
-.panel strong{color:#ffe49b}.note{font-size:11px;color:#bdd0e1;padding:10px 12px;background:#102034}
-@keyframes bob{50%{transform:translateY(-3px)}}
+:root{--navy:#101c2b;--gold:#e6bd75;--text:#edf3f8}
+*{box-sizing:border-box}html,body{margin:0;background:#0d1725;color:var(--text);font-family:system-ui,'Noto Sans JP',sans-serif}
+.shell{max-width:1280px;margin:auto;background:#111e2c;border:1px solid #506378;box-shadow:0 15px 35px #0007}
+.top{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:13px 17px;background:linear-gradient(100deg,#14283b,#20394b);border-bottom:2px solid #b88b4f}
+.logo{font-weight:900;letter-spacing:.06em;font-size:19px;color:#f9d69b}.small{font-size:11px;color:#b9cddf}
+.controls{display:flex;gap:7px;align-items:center;flex-wrap:wrap;padding:11px 13px;background:#192a3a}
+button{cursor:pointer;border:1px solid #658097;background:#29445c;color:#f6f9fc;border-radius:5px;padding:8px 10px;font-weight:700;font-size:12px}
+button:hover,button.active{background:#4c647b;border-color:#f6c97c}.level{border:1px solid #aa885a;color:#ffdc9a;background:#343328;padding:7px 10px;border-radius:5px;font-size:12px;font-weight:800}
+.viewport{background:#0b1420;padding:10px;overflow:hidden}
+.scene{position:relative;aspect-ratio:1.7;width:100%;min-height:385px;overflow:hidden;border:7px solid #394b57;background:#293947;isolation:isolate}
+.scene:before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at 45% 35%,#ffffff19,transparent 70%);z-index:11;pointer-events:none}
+.room{position:absolute;overflow:hidden;border:6px solid #40505a;background:repeating-linear-gradient(0deg,#8b755a 0 2px,transparent 2px 36px),repeating-linear-gradient(90deg,#a48e70 0 2px,#bba88a 2px 36px);box-shadow:inset 0 0 0 3px #d8c4a3,inset 0 12px 22px #161d2b50}
+.room:before{content:'';position:absolute;inset:0 0 auto;height:17%;background:linear-gradient(#455965 0 9%,#5f7982 10% 72%,#334953 73%);border-bottom:5px solid #d4a769;z-index:1}
+.room:after{content:attr(data-title);position:absolute;top:4px;left:8px;z-index:6;font-size:clamp(8px,1.2vw,14px);font-weight:900;letter-spacing:.03em;color:#ffdc9c;text-shadow:1px 2px #000}
+.executive{left:1%;top:1%;width:48%;height:59%}.development{left:51%;top:1%;width:48%;height:59%}
+.qa{left:1%;top:64%;width:48%;height:35%}.lounge{left:51%;top:64%;width:48%;height:35%}
+.room.development{background-color:#a8b5ad}.room.qa{background-color:#aaa9a0}.room.lounge{background-color:#c5ae94}
+.corridor{position:absolute;top:60%;left:0;width:100%;height:4%;background:repeating-linear-gradient(90deg,#65727a 0 30px,#8b969d 31px 33px);border-block:2px solid #b5bdc3}
+.decor{position:absolute;inset:0;pointer-events:none;z-index:3}.item{position:absolute;filter:drop-shadow(3px 5px 2px #0005)}
+.window{width:22%;height:18%;background:linear-gradient(135deg,#78b6c4 0 17%,#b1d7da 18% 21%,#659ba8 22% 55%,#274b62 56%);border:5px solid #354e5a;box-shadow:inset 0 0 0 2px #e0cba8,0 4px #182d39}
+.desk{width:19%;height:13%;border:4px solid #624a35;background:linear-gradient(#b68b61 0 20%,#835e3d 21% 80%,#65452f 81%);box-shadow:0 7px 0 #493c35}
+.desk:before{content:'';position:absolute;top:-24%;left:29%;width:44%;height:70%;border:3px solid #31414b;background:linear-gradient(130deg,#1c3c4b,#3f8495);box-shadow:0 2px 0 #101b25}
+.desk:after{content:'';position:absolute;bottom:-30%;left:31%;width:36%;height:28%;background:#35434b;border:2px solid #28343c;border-radius:3px}
+.table{width:36%;height:18%;border:5px solid #6d4b35;background:linear-gradient(130deg,#b28a5f,#8a6243);border-radius:35%;box-shadow:0 6px 0 #4e382a}
+.table:after{content:'▣　▣　▣';position:absolute;inset:25% 0;text-align:center;color:#35424c;font-size:12px}
+.sofa{width:32%;height:20%;border:5px solid #684b3b;border-radius:9px;background:linear-gradient(#c48963 0 35%,#98684e 36%);box-shadow:0 6px #523d33}
+.plant{font-size:clamp(15px,2.8vw,29px);line-height:1}.lamp{font-size:clamp(12px,2vw,23px)}
+.rug{width:40%;height:25%;border:3px solid #9a7759;background:repeating-linear-gradient(45deg,#d5b894,#d5b894 8px,#c9a881 9px,#c9a881 16px);opacity:.65}
+.board{width:24%;height:21%;border:5px solid #735a44;background:linear-gradient(140deg,#203b4b,#3e6975);box-shadow:0 4px 0 #333d40}
+.board:after{content:'PROJECTS';font:900 9px monospace;color:#d3e8e4;position:absolute;left:8%;top:20%}
+.actor{position:absolute;z-index:8;width:5.5%;min-width:24px;max-width:50px;transform:translate(-50%,-88%);cursor:pointer;text-align:center;filter:drop-shadow(1px 4px 2px #10101077)}
+.actor img{width:80%;display:block;margin:auto;image-rendering:pixelated;pointer-events:none}.actor.walk img{animation:step .24s steps(2,end) infinite}
+.actor .name{display:block;white-space:nowrap;width:max-content;max-width:115px;position:relative;left:50%;transform:translateX(-50%);font-size:clamp(7px,.9vw,11px);padding:1px 4px;background:#172638e8;border:1px solid #9eb0b8;color:#fff;overflow:hidden;text-overflow:ellipsis}
+.actor.selected .name{border-color:#ffd87e;color:#ffe7a7}.actor:focus-visible{outline:2px solid #ffd87e}
+.bubble{position:absolute;display:none;left:50%;bottom:105%;transform:translateX(-50%);background:#fdf4df;color:#273644;border:2px solid #405465;border-radius:4px;min-width:95px;max-width:140px;padding:5px;font-size:10px;line-height:1.4;box-shadow:2px 3px #0005}
+.actor.selected .bubble,.actor.talk .bubble{display:block}.actor.talk{z-index:9}.actor.selected{z-index:10}
+.panel{padding:14px;background:#1a2e40;border-top:2px solid #bd995f;min-height:93px;font-size:13px;line-height:1.8}.panel strong{color:#ffe09e}
+.note{font-size:11px;color:#b9cbd9;padding:10px 14px;background:#122236}
+@keyframes step{50%{transform:translateY(-3px)}}
+@media(max-width:650px){.viewport{padding:4px}.scene{min-height:290px;aspect-ratio:1.2}.room:after{font-size:8px}.actor .name{font-size:7px}.controls{padding:7px}.logo{font-size:15px}}
 @media(prefers-reduced-motion:reduce){.actor.walk img{animation:none}}
 </style></head><body><div class="shell">
-<div class="bar"><span class="logo">🏢 ZEROBOARD AI COMPANY</span><span class="hint">PIXEL BUILDING • フロア拡張型オフィス</span></div>
-<div class="controls"><span class="tag">🏠 LEVEL 1：スタートアップ</span>
-<button id="f1" class="active">1F 本社</button><button id="f2">2F 開発フロア（見学）</button><button id="f3">3F 品質管理（見学）</button><button id="pause">⏸ 歩行停止</button></div>
-<div class="scene" id="scene"><div class="floor" id="floor"></div><div id="actors"></div></div>
-<div class="panel" id="panel"><strong>👑 ZEROBOARD本社へようこそ</strong><br>社員をクリックするとプロフィールを表示します。</div>
-<div class="note">※2F・3Fは将来の拡張イメージを見学するモードです。実際にビルが成長した状態ではありません。歩行・会話は演出です。ブラウザの設定により選択フロアが保存されない場合があります。</div>
+<div class="top"><span class="logo">🏙️ ZEROBOARD AI · HD-2D OFFICE</span><span class="small">LIVE PIXEL WORLD / Ver.12</span></div>
+<div class="controls"><span class="level">🏠 COMPANY LEVEL 1</span><button id="f1" class="active">1F 本社</button><button id="f2">2F 開発（見学）</button><button id="f3">3F 品質管理（見学）</button><button id="pause">⏸ 歩行停止</button></div>
+<div class="viewport"><div class="scene" id="scene"><div class="corridor"></div><div id="rooms"></div><div id="actors"></div></div></div>
+<div class="panel" id="panel"><strong>👑 ZEROBOARD AI COMPANY</strong><br>社員をクリックするとプロフィールが表示されます。</div>
+<div class="note">💡 ドット絵の家具・背景・社員は独立した描画要素です。社員は家具の当たり判定を避けて移動します。2F・3Fは将来イメージで、開発AIの自動作業やビル成長はまだ未実装です。歩行・会話は演出です。</div>
 </div><script>
-const staff=__STAFF__, floor=document.getElementById('floor'), actorsRoot=document.getElementById('actors'), panel=document.getElementById('panel');
+const staff=__STAFF__;
+const roomsRoot=document.getElementById('rooms'),actorsRoot=document.getElementById('actors'),panel=document.getElementById('panel');
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;let paused=reduce,last=performance.now();
-const floorDefs={
-1:[['executive','👑 経営会議室'],['development','💻 開発準備室'],['qa','🧪 品質管理室'],['lounge','☕ 休憩室']],
-2:[['executive','📐 設計・企画'],['development','💻 開発チーム'],['qa','📚 技術資料室'],['lounge','☕ ラウンジ']],
-3:[['executive','🧪 テストラボ'],['development','🐛 デバッグ室'],['qa','🔒 セキュリティ'],['lounge','☕ 休憩室']]};
-const furniture={executive:'<div class="table"></div><span class="plant">🪴</span>',development:'<div class="desk" style="left:22%;top:40%"></div><div class="desk" style="left:48%;top:40%"></div><div class="desk" style="left:73%;top:40%"></div><span class="plant">🪴</span>',qa:'<div class="desk" style="left:18%;top:60%"></div><div class="desk" style="left:53%;top:60%"></div>',lounge:'<div class="sofa"></div><span class="plant">🪴</span><span class="lamp">☕</span>'};
-const zones={executive:[6,44,8,54],development:[55,94,8,54],qa:[6,44,70,96],lounge:[55,94,70,96]};
-const homes={ '経営本部':'executive','システム開発部':'development','品質管理部':'qa'};
-let currentFloor=1,characters=[];
+const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+let paused=reduce,last=performance.now(),currentFloor=1,characters=[];
+const defs={1:{executive:'👑 EXECUTIVE / 経営本部',development:'💻 DEVELOPMENT / 開発準備室',qa:'🧪 QA / 品質管理室',lounge:'☕ LOUNGE / 休憩室'},2:{executive:'📐 PLANNING / 企画',development:'💻 DEVELOPMENT / 開発',qa:'📚 LIBRARY / 資料',lounge:'☕ LOUNGE / 休憩室'},3:{executive:'🧪 TEST LAB / テスト',development:'🐛 DEBUG / デバッグ',qa:'🔒 SECURITY / 監査',lounge:'☕ LOUNGE / 休憩室'}};
+const bounds={executive:[1,49,1,60],development:[51,99,1,60],qa:[1,49,64,99],lounge:[51,99,64,99]};
+const homes={'経営本部':'executive','システム開発部':'development','品質管理部':'qa'};
+// Percent coordinates for props. Collision rectangles include a margin to prevent clipping.
+const furniture={
+ executive:[['window',8,20,22,18],['window',36,20,22,18],['board',67,19,24,21],['table',32,53,36,18],['plant',89,75,9,12],['lamp',4,73,8,10]],
+ development:[['window',7,20,22,18],['window',38,20,22,18],['board',69,19,24,21],['desk',9,62,19,13],['desk',40,62,19,13],['desk',72,62,19,13],['plant',91,83,7,10]],
+ qa:[['board',9,24,24,21],['desk',37,52,19,13],['desk',72,52,19,13],['plant',91,78,7,12]],
+ lounge:[['rug',15,49,40,25],['sofa',20,54,32,20],['plant',85,70,10,15],['lamp',70,25,10,15]]
+};
+// Room-local to global positions; characters walk on the floor, not on the desks or walls.
+function globalPos(room,lx,ly){const [x1,x2,y1,y2]=bounds[room];return [x1+(x2-x1)*lx/100,y1+(y2-y1)*ly/100]}
+function makeProp(room,type,x,y,w,h){const el=document.createElement('div');el.className='item '+type;el.style.cssText=`left:${x}%;top:${y}%;width:${w}%;height:${h}%;`;if(type==='plant')el.textContent='🪴';if(type==='lamp')el.textContent='💡';return el}
 function rnd(a,b){return a+Math.random()*(b-a)}
-function spot(zone){let [x1,x2,y1,y2]=zones[zone];return [rnd(x1+3,x2-3),rnd(y1+7,y2-2)]}
-function build(n){currentFloor=n;document.querySelectorAll('.controls button[id^="f"]').forEach(b=>b.classList.toggle('active',b.id==='f'+n));
- floor.innerHTML='';actorsRoot.innerHTML='';characters=[];
- for(const [klass,title] of floorDefs[n]){const room=document.createElement('div');room.className='room '+klass;room.dataset.name=title;room.dataset.floor=n;room.innerHTML='<div class="furniture">'+furniture[klass]+'</div>';floor.appendChild(room)}
- // 1Fは全員の会社の姿、2F/3Fは担当部署中心の将来のフロアを見学
- const visible=staff.filter(s=>n===1 || (n===2?s.dept==='システム開発部':s.dept==='品質管理部'));
- visible.forEach((s,i)=>{let zone=n===1?homes[s.dept]:(n===2?'development':'qa');let pos=spot(zone);
- const el=document.createElement('div');el.className='actor';el.innerHTML='<div class="bubble"></div><img alt=""><div class="name"></div>';
- el.querySelector('img').src='data:image/svg+xml;base64,'+s.sprite;el.querySelector('img').alt=s.name;el.querySelector('.name').textContent=s.name;el.querySelector('.bubble').textContent=s.line;
- actorsRoot.appendChild(el);let a={s,zone,el,x:pos[0],y:pos[1],target:spot(zone),rest:rnd(1,4),talk:0};characters.push(a);
- el.addEventListener('click',()=>{characters.forEach(c=>c.el.classList.remove('selected'));el.classList.add('selected');panel.innerHTML='<strong>'+esc(s.name)+'</strong>　'+(s.status==='稼働可能'?'🟢 経営AI役職':'🟡 準備中')+'<br>'+esc(s.dept)+'｜'+esc(s.duty)+'<br>性格：'+esc(s.personality)+'<br>💬 '+esc(s.line)})});
- panel.innerHTML='<strong>'+(['','🏠 1F 本社','💻 2F 開発フロア（将来イメージ）','🧪 3F 品質管理フロア（将来イメージ）'][n])+'</strong><br>社員をクリックすると詳細が表示されます。';
- try{localStorage.setItem('zeroboard_floor_v11',String(n))}catch(e){}
+function valid(room,lx,ly){
+ if(lx<8||lx>92||ly<29||ly>91)return false;
+ for(const [type,x,y,w,h] of furniture[room]){
+  // Wall items above head height are not walkable either; keep a small safety margin.
+  const margin=(type==='plant'||type==='lamp')?5:7;
+  if(lx>x-margin&&lx<x+w+margin&&ly>y-margin&&ly<y+h+margin)return false;
+ }
+ return true;
 }
-for(let i=1;i<=3;i++)document.getElementById('f'+i).onclick=()=>build(i);
-const pause=document.getElementById('pause');pause.textContent=paused?'▶ 歩行再開':'⏸ 歩行停止';pause.onclick=()=>{paused=!paused;pause.textContent=paused?'▶ 歩行再開':'⏸ 歩行停止'};
-let initial=1;try{const saved=Number(localStorage.getItem('zeroboard_floor_v11'));if([1,2,3].includes(saved))initial=saved}catch(e){}build(initial);
+function randomPoint(room){for(let k=0;k<100;k++){const lx=rnd(9,91),ly=rnd(31,90);if(valid(room,lx,ly))return [lx,ly]}return [65,44]}
+// Waypoints stay in walkable cells; direct paths are tested before each step.
+function clearPath(room,a,b){const distance=Math.hypot(a[0]-b[0],a[1]-b[1]);const n=Math.max(2,Math.ceil(distance/2));for(let i=0;i<=n;i++){const x=a[0]+(b[0]-a[0])*i/n,y=a[1]+(b[1]-a[1])*i/n;if(!valid(room,x,y))return false}return true}
+function nextTarget(a){for(let k=0;k<45;k++){const p=randomPoint(a.room);if(clearPath(a.room,[a.lx,a.ly],p))return p}return [a.lx,a.ly]}
+function build(n){currentFloor=n;roomsRoot.innerHTML='';actorsRoot.innerHTML='';characters=[];
+ document.querySelectorAll('.controls button[id^="f"]').forEach(b=>b.classList.toggle('active',b.id==='f'+n));
+ for(const [room,title] of Object.entries(defs[n])){
+  const el=document.createElement('div');el.className='room '+room;el.dataset.title=title;
+  const deco=document.createElement('div');deco.className='decor';
+  for(const [type,x,y,w,h] of furniture[room])deco.appendChild(makeProp(room,type,x,y,w,h));
+  el.appendChild(deco);roomsRoot.appendChild(el);
+ }
+ const visible=staff.filter(s=>n===1||(n===2?s.dept==='システム開発部':s.dept==='品質管理部'));
+ visible.forEach((s,i)=>{
+  const room=n===1?homes[s.dept]:(n===2?'development':'qa');const p=randomPoint(room);
+  const el=document.createElement('div');el.className='actor';el.setAttribute('role','button');el.setAttribute('tabindex','0');el.setAttribute('aria-label',s.name+'のプロフィール');
+  const bubble=document.createElement('div');bubble.className='bubble';bubble.textContent=s.line;
+  const img=document.createElement('img');img.src='data:image/svg+xml;base64,'+s.sprite;img.alt=s.name;
+  const label=document.createElement('div');label.className='name';label.textContent=s.name;
+  el.append(bubble,img,label);actorsRoot.appendChild(el);
+  const a={s,room,el,img,lx:p[0],ly:p[1],target:p,rest:rnd(.8,2.7),talk:0};characters.push(a);
+  const select=()=>{characters.forEach(c=>c.el.classList.remove('selected'));el.classList.add('selected');
+   panel.innerHTML='<strong>'+esc(s.name)+'</strong>　'+(s.status==='稼働可能'?'🟢 経営AI役職':'🟡 開発準備中')+'<br>'+esc(s.dept)+'｜'+esc(s.duty)+'<br>性格：'+esc(s.personality)+'<br>💬 '+esc(s.line)};
+  el.addEventListener('click',select);el.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();select()}});
+ });
+ panel.innerHTML='<strong>'+(['','🏠 1F 本社','💻 2F 開発フロア（将来イメージ）','🧪 3F 品質管理（将来イメージ）'][n])+'</strong><br>社員をクリックするとプロフィールを表示します。';
+ try{localStorage.setItem('zeroboard_floor_v12',String(n))}catch(e){}
+}
+for(let n=1;n<=3;n++)document.getElementById('f'+n).onclick=()=>build(n);
+const pause=document.getElementById('pause');pause.textContent=paused?'▶ 歩行再開':'⏸ 歩行停止';
+pause.onclick=()=>{paused=!paused;pause.textContent=paused?'▶ 歩行再開':'⏸ 歩行停止'};
+let initial=1;try{let n=Number(localStorage.getItem('zeroboard_floor_v12')||localStorage.getItem('zeroboard_floor_v11'));if([1,2,3].includes(n))initial=n}catch(e){}build(initial);
 function tick(t){const dt=Math.min((t-last)/1000,.06);last=t;
- for(const a of characters){const dx=a.target[0]-a.x,dy=a.target[1]-a.y,d=Math.hypot(dx,dy);
- if(!paused&&a.rest<=0&&d>.6){let step=Math.min(d,3.4*dt);a.x+=dx/d*step;a.y+=dy/d*step;a.el.classList.add('walk');a.el.querySelector('img').style.transform=dx<0?'scaleX(-1)':''}
- else{a.el.classList.remove('walk');if(!paused){if(a.rest>0){a.rest=Math.max(0,a.rest-dt)}else if(d<=.6){a.target=spot(a.zone);a.rest=rnd(1,3);if(Math.random()<.18)a.talk=t+1800}}}
- a.el.style.left=a.x+'%';a.el.style.top=a.y+'%';a.el.classList.toggle('talk',t<a.talk)}requestAnimationFrame(tick)}requestAnimationFrame(tick);
+ for(const a of characters){
+  if(!paused){
+   if(a.rest>0){a.rest=Math.max(0,a.rest-dt);a.el.classList.remove('walk')}
+   else{
+    let dx=a.target[0]-a.lx,dy=a.target[1]-a.ly,d=Math.hypot(dx,dy);
+    if(d<.7){a.rest=rnd(1,3.2);a.target=nextTarget(a);a.el.classList.remove('walk');if(Math.random()<.12)a.talk=t+1500}
+    else{const step=Math.min(d,9*dt);const nx=a.lx+dx/d*step,ny=a.ly+dy/d*step;
+     if(valid(a.room,nx,ny)){a.lx=nx;a.ly=ny;a.el.classList.add('walk');a.img.style.transform=dx<0?'scaleX(-1)':''}
+     else{a.target=nextTarget(a);a.rest=.2;a.el.classList.remove('walk')}
+    }
+   }
+  }else a.el.classList.remove('walk');
+  const [gx,gy]=globalPos(a.room,a.lx,a.ly);a.el.style.left=gx+'%';a.el.style.top=gy+'%';a.el.classList.toggle('talk',t<a.talk);
+ }
+ requestAnimationFrame(tick)
+}requestAnimationFrame(tick);
 </script></body></html>'''
     office_html = office_html.replace('__STAFF__', staff_json)
-    components.html(office_html, height=850, scrolling=True)
+    components.html(office_html, height=920, scrolling=True)
 
     st.subheader('🪪 AI社員名簿')
     for dept, label in [('経営本部','👑 経営本部'),('システム開発部','💻 システム開発部'),('品質管理部','🧪 品質管理部')]:
