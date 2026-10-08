@@ -213,6 +213,72 @@ with st.expander('✅ 完了・中止した案件'):
         st.caption('完了・中止した案件はまだありません。')
 
 # ==================================================
+# Ver.6 AI OFFICE - 社員の見える化（第一段階）
+# ※社員の表示と組織設計。開発作業の自動実行は今後実装。
+# ==================================================
+st.divider()
+st.header('🏢 ZEROBOARD AI OFFICE')
+st.caption('AIカンパニーの組織図・社員名簿。開発部門は準備中です。')
+
+OFFICE_STAFF = [
+    ('👑', '議長AI', '経営本部', '経営判断・会議統括', '稼働可能'),
+    ('🧠', '戦略AI', '経営本部', '事業戦略・成長計画', '稼働可能'),
+    ('📣', 'マーケティングAI', '経営本部', '集客・販売戦略', '稼働可能'),
+    ('💰', '財務AI', '経営本部', '収支・採算分析', '稼働可能'),
+    ('🛡️', 'リスクAI', '経営本部', 'リスク評価', '稼働可能'),
+    ('🧑‍💻', 'CTO AI', 'システム開発部', '技術選定・開発統括', '準備中'),
+    ('📐', '設計AI', 'システム開発部', '仕様・構成設計', '準備中'),
+    ('🎨', 'UI/UX AI', 'システム開発部', '画面設計・体験設計', '準備中'),
+    ('💻', '開発AI', 'システム開発部', 'コード生成・編集', '準備中'),
+    ('🧪', 'テストAI', '品質管理部', '自動テスト', '準備中'),
+    ('🐛', 'デバッグAI', '品質管理部', '不具合調査・修正', '準備中'),
+    ('🔒', 'セキュリティAI', '品質管理部', '安全性レビュー', '準備中'),
+]
+
+st.markdown('''<style>
+.zb-office {background:#111827; border:4px solid #374151; border-radius:5px;
+  padding:16px; color:#f9fafb; font-family:monospace;}
+.zb-room {border:3px solid #64748b; padding:10px; margin:10px 0;
+  background:repeating-linear-gradient(0deg,#1f2937,#1f2937 20px,#202f42 20px,#202f42 22px);}
+.zb-room-title {font-weight:bold; color:#fbbf24; margin-bottom:10px;}
+.zb-desk-grid {display:grid;grid-template-columns:repeat(auto-fit,minmax(105px,1fr));gap:10px;}
+.zb-desk {text-align:center; background:#334155; border:3px solid #94a3b8;
+  padding:8px 4px; box-shadow:3px 3px 0 #0f172a;}
+.zb-avatar {font-size:30px; image-rendering:pixelated; line-height:1.6;}
+.zb-name {font-size:12px;font-weight:bold;}
+.zb-ready {font-size:11px;color:#86efac;}
+.zb-wait {font-size:11px;color:#fcd34d;}
+</style>''', unsafe_allow_html=True)
+
+from html import escape
+rooms = [('経営本部', '👑 EXECUTIVE ROOM'),
+         ('システム開発部', '💻 DEVELOPMENT ROOM'),
+         ('品質管理部', '🧪 QUALITY ASSURANCE ROOM')]
+room_html = '<div class="zb-office">'
+for dept, title in rooms:
+    room_html += f'<div class="zb-room"><div class="zb-room-title">{escape(title)}</div><div class="zb-desk-grid">'
+    for avatar, name, department, duty, status in OFFICE_STAFF:
+        if department != dept:
+            continue
+        status_class = 'zb-ready' if status == '稼働可能' else 'zb-wait'
+        room_html += (f'<div class="zb-desk"><div class="zb-avatar">{avatar}</div>'
+                      f'<div class="zb-name">{escape(name)}</div>'
+                      f'<div class="{status_class}">{"●" if status == "稼働可能" else "○"} {escape(status)}</div></div>')
+    room_html += '</div></div>'
+room_html += '</div>'
+st.markdown(room_html, unsafe_allow_html=True)
+
+ready_count = sum(status == '稼働可能' for *_, status in OFFICE_STAFF)
+c1, c2, c3 = st.columns(3)
+c1.metric('👥 社員数（構想含む）', len(OFFICE_STAFF))
+c2.metric('🟢 既存AI役職', ready_count)
+c3.metric('🟡 実装待ち', len(OFFICE_STAFF) - ready_count)
+with st.expander('📋 AI社員名簿・仕事内容'):
+    for avatar, name, department, duty, status in OFFICE_STAFF:
+        st.write(f'{avatar} **{name}**｜{department}｜{duty}｜{status}')
+st.info('現在のドット絵風オフィスは組織の見える化です。開発AI・テストAI・デバッグAIが実際にコードを実行する機能や、リアルタイム稼働表示は今後追加します。')
+
+# ==================================================
 # Ver.4 CEO BRIEFING
 # ==================================================
 st.divider()
