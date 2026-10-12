@@ -319,38 +319,56 @@ def run_work_team(idea,work_type,instruction,feedback='',auto_quality=False):
     checks,review=quality_review(brief,draft,work_type)
     reports['品質チェック（初回）']='\n'.join(checks) if checks else '機械チェックで検出された問題なし（安全性を保証しません）'
     if auto_quality:
-        initial_draft=draft
-        initial_review=review
-        # One bounded improvement cycle only: prevents infinite loops and uncontrolled API cost.
-        try:
-            correction=(brief+'\n以下の初稿を修正してください。全文を省略せず再出力。'
-                        +'\n初稿：'+draft[:28000]+'\n機械チェック：'+json.dumps(checks,ensure_ascii=False)
-                        +'\n品質AIレビュー：'+review[:9000])
-            improved=ask_ai('あなたはZEROBOARDのデバッグ・改善AIです。'+production+' 品質指摘を反映し、完成物のみ出力。',correction)
-            final_checks,final_review=quality_review(brief,improved,work_type)
-            # Do not replace a complete draft with an obviously truncated one.
-            if improved.strip() and not (work_type=='Webページ（HTML）' and
-                    any('終了タグがありません' in issue for issue in final_checks) and
-                    not any('終了タグがありません' in issue for issue in checks)):
-                draft,review=improved,final_review
-                reports['品質改善ループ']='初稿レビュー → デバッグAIによる修正 → 再レビュー（最大1回）'
-                reports['品質改善レポート']={
-                    'result':'修正版を採用（CEO確認待ち）',
-                    'before_content':initial_draft,
-                    'before_review':initial_review,
-                    'before_checks':checks,
-                    'after_checks':final_checks,
-                    'after_review':final_review,
-                    'before_chars':len(initial_draft),
-                    'after_chars':len(improved),
-                }
-                reports['品質チェック（最終）']='\n'.join(final_checks) if final_checks else '機械チェックで検出された問題なし（安全性を保証しません）'
-            else:
-                reports['品質改善ループ']='修正版が不完全な可能性があるため初稿を維持。CEO確認が必要。'
-                reports['品質改善レポート']={'result':'修正版は不採用。初稿を維持（CEO確認待ち）','before_checks':checks,'after_checks':final_checks,'before_review':initial_review,'after_review':final_review,'before_chars':len(initial_draft),'after_chars':len(improved)}
-        except Exception as exc:
-            reports['品質改善ループ']='改善処理でエラー。初稿を維持。詳細：'+str(exc)[:500]
-            reports['品質改善レポート']={'result':'改善処理でエラー。初稿を維持（CEO確認待ち）','before_checks':checks,'before_review':initial_review,'after_checks':['再チェック未完了']}
+        initial_draft, initial_review, initial_checks = draft, review, list(checks)
+        rounds=[]
+        # Up to three total correction attempts; stop on no measurable improvement.
+        for attempt in range(1, 4):
+            if attempt > 1 and not checks and not ('判定: 要修正' in review or '判定：要修正' in review):
+                break
+            try:
+                correction=(brief+'\n次の未解決事項だけを重点的に修正し、成果物全文を出力してください。'
+                            +'\n現在の成果物：'+draft[:28000]
+                            +'\n機械チェック未解決：'+json.dumps(checks,ensure_ascii=False)
+                            +'\n最新の品質AIレビュー：'+review[:9000])
+                improved=ask_ai('あなたはZEROBOARDのデバッグ・改善AIです。'+production+' 指摘を修正し成果物だけを出力。',correction)
+                next_checks,next_review=quality_review(brief,improved,work_type)
+                valid=bool(improved.strip()) and not (work_type=='Webページ（HTML）' and
+                    any('終了タグがありません' in issue for issue in next_checks) and
+                    not any('終了タグがありません' in issue for issue in checks))
+                # An objective regression is not adopted. AI-only reviews are not proof of correctness.
+                if not valid or len(next_checks)>len(checks):
+                    rounds.append({'round':attempt,'result':'不採用（不完全または機械チェック悪化）',
+                                   'before_checks':list(checks),'after_checks':list(next_checks),
+                                   'before_review':review,'after_review':next_review})
+                    break
+                old_checks=list(checks)
+                old_review=review
+                old_needs_fix=('判定: 要修正' in review or '判定：要修正' in review)
+                new_needs_fix=('判定: 要修正' in next_review or '判定：要修正' in next_review)
+                changed=(improved!=draft)
+                draft,checks,review=improved,next_checks,next_review
+                rounds.append({'round':attempt,'result':'採用（CEO確認待ち）',
+                               'before_checks':old_checks,'after_checks':list(checks),
+                               'before_review':old_review,
+                               'after_review':review,'changed':changed})
+                # Only a measurable reduction in deterministic findings or AI verdict improvement
+                # warrants another paid iteration; otherwise stop to protect API balance.
+                improved_signal=(len(checks)<len(old_checks) or (old_needs_fix and not new_needs_fix))
+                if not changed or not improved_signal:
+                    rounds[-1]['stop_reason']='改善指標が進まないため停止（追加API費用を防止）'
+                    break
+            except Exception as exc:
+                rounds.append({'round':attempt,'result':'エラーで停止（CEO確認待ち）','error':str(exc)[:300]})
+                break
+        reports['品質改善ループ']=f'初稿レビュー → デバッグAI再修正 {len(rounds)}回（上限3回） → CEO確認'
+        reports['品質改善レポート']={
+            'result':'修正版を採用（CEO確認待ち）' if draft!=initial_draft else '初稿を維持（CEO確認待ち）',
+            'before_content':initial_draft,'before_review':initial_review,
+            'before_checks':initial_checks,'after_checks':checks,'after_review':review,
+            'before_chars':len(initial_draft),'after_chars':len(draft),
+            'rounds':rounds,'max_rounds':3,
+        }
+        reports['品質チェック（最終）']='\n'.join(checks) if checks else '機械チェックで検出された問題なし（安全性を保証しません）'
     return reports,draft,review
 
 history=load_meeting_history()
@@ -773,7 +791,7 @@ with tab_work:
             selected=st.selectbox('👑 実行する事業',list(choices))
             kind=st.selectbox('制作する成果物',WORK_TYPES)
             instruction=st.text_area('CEOからの具体的な指示',placeholder='例：京都の小規模店舗向けに、問い合わせにつながる1ページのサイトを制作。')
-            auto_quality=st.checkbox('🧪 AI品質改善ループ（自動レビュー→修正→再レビューを1回）',value=True,help='追加のAPI利用料が発生します。品質保証や自動公開ではありません。')
+            auto_quality=st.checkbox('🧪 AI品質改善ループ（未解決問題を最大3回まで自動再修正）',value=True,help='追加のAPI利用料が発生します。品質保証や自動公開ではありません。')
             start=st.form_submit_button('🚀 AI社員に制作を指示',type='primary')
         if start:
             if not instruction.strip():st.warning('CEOの指示を入力してな。')
@@ -800,7 +818,7 @@ with tab_work:
             # Ver.22: Human-readable quality report, stored in existing reports JSONB.
             quality_data=(job.get('reports') or {}).get('品質改善レポート')
             if isinstance(quality_data,dict):
-                with st.expander('📋 AI社員の品質改善報告書（Ver.23）',expanded=True):
+                with st.expander('📋 AI社員の品質改善報告書（Ver.24）',expanded=True):
                     report=quality_issue_report(quality_data,job.get('content') or '')
                     st.write('**処理結果：**',quality_data.get('result','未記録'))
                     if not report['verified_record']:
@@ -809,6 +827,15 @@ with tab_work:
                         st.error('🔴 未解決の指摘あり：品質改善は完了していません。CEOの確認・修正指示が必要です。')
                     else:
                         st.warning('🟡 簡易チェックでは未解決の指摘なし。ただし実ブラウザテスト・公開承認は未実施です。')
+                    if quality_data.get('rounds'):
+                        st.markdown('**🔁 自動再修正の実行履歴（最大3回）**')
+                        for item in quality_data['rounds']:
+                            st.write(f"第{item.get('round')}回：{item.get('result')}")
+                            st.caption(f"機械チェック {len(item.get('before_checks') or [])}件 → {len(item.get('after_checks') or [])}件")
+                            if item.get('stop_reason'): st.warning(item['stop_reason'])
+                            if item.get('error'): st.error(item['error'])
+                    else:
+                        st.caption('この案件にはVer.24の再修正履歴がありません。過去の案件は自動で再実行されません。')
                     st.write('**🔍 初回に見つかった機械チェックの問題**')
                     initial=quality_data.get('before_checks') or []
                     if initial:
