@@ -10,7 +10,7 @@ from supabase import create_client
 
 st.set_page_config(page_title='ZEROBOARD AI', page_icon='🧠', layout='wide')
 st.title('🧠 ZEROBOARD AI')
-st.caption('AI経営会議システム / Ver.25 DUAL QUALITY REVIEW')
+st.caption('AI経営会議システム / Ver.26 EVIDENCE-BASED REPAIR')
 st.write('あなたがCEO。4人のAI役員が議論し、最後に議長AIが経営判断をまとめます。')
 st.divider()
 client = OpenAI(api_key=st.secrets['OPENAI_API_KEY'])
@@ -316,6 +316,50 @@ def review_status(checks,issues):
             'ceo':sum(x.get('owner')=='CEO確認' for x in issues)}
 
 
+def issue_key(issue):
+    """Conservative issue identity: same owner and normalized title; wording changes remain unverified."""
+    import re
+    title=re.sub(r'[\s\u3000・:：、。!！?？()（）]+','',str(issue.get('title') or '')).lower()
+    return (str(issue.get('owner') or ''),title)
+
+
+def assess_candidate(old_checks, old_issues, new_checks, new_issues, old_content, new_content, work_type):
+    """Fail closed: never equate fewer AI comments with a proven fix."""
+    reasons=[]
+    old_ai={issue_key(x) for x in old_issues if x.get('owner')=='AI修正'}
+    new_ai={issue_key(x) for x in new_issues if x.get('owner')=='AI修正'}
+    old_ceo={issue_key(x) for x in old_issues if x.get('owner')=='CEO確認'}
+    new_ceo={issue_key(x) for x in new_issues if x.get('owner')=='CEO確認'}
+    fixed_checks=[x for x in old_checks if x not in new_checks]
+    introduced_checks=[x for x in new_checks if x not in old_checks]
+    fixed_ai=old_ai-new_ai
+    introduced_ai=new_ai-old_ai
+    if not new_content.strip() or new_content==old_content:
+        reasons.append('成果物が空、または元の成果物から変更されていません。')
+    if work_type=='Webページ（HTML）' and any('終了タグがありません' in x or '開始宣言が見当たりません' in x for x in new_checks):
+        reasons.append('HTMLの基本構造が不完全です。')
+    if introduced_checks:
+        reasons.append('機械チェックで新しい問題が発生しました。')
+    if introduced_ai:
+        reasons.append('AIレビューで新しい修正対象が報告されました（表現差の可能性もあります）。')
+    if len(new_ceo)>len(old_ceo):
+        reasons.append('CEO確認事項が増えています。')
+    if not fixed_checks and not fixed_ai:
+        reasons.append('同一の指摘が解消した証拠がありません。')
+    if fixed_ai and not fixed_checks:
+        reasons.append('AI指摘の消失のみで、独立した機械チェックによる改善を確認できません。')
+    if len(new_checks)+len(new_ai)>=len(old_checks)+len(old_ai):
+        reasons.append('機械チェックとAI修正対象の合計件数が減っていません。')
+    return {
+        'accepted':not reasons,'reasons':reasons,
+        'fixed_checks':fixed_checks,'introduced_checks':introduced_checks,
+        'fixed_ai_titles':[x[1] for x in sorted(fixed_ai)],
+        'introduced_ai_titles':[x[1] for x in sorted(introduced_ai)],
+        'ceo_before':len(old_ceo),'ceo_after':len(new_ceo),
+        'evidence':'機械チェックとAIレビューの静的比較。ブラウザ実行検証ではありません。'
+    }
+
+
 def quality_issue_report(data, current_content):
     """Summarize deterministic before/after findings without claiming a browser test."""
     before=[str(x) for x in (data.get('before_checks') or [])]
@@ -372,21 +416,17 @@ def run_work_team(idea,work_type,instruction,feedback='',auto_quality=False):
                 next_checks,next_review,next_issues=quality_review(brief,improved,work_type)
                 old_stats=review_status(checks,issues)
                 new_stats=review_status(next_checks,next_issues)
-                old_total=old_stats['mechanical']+old_stats['ai_fixable']
-                new_total=new_stats['mechanical']+new_stats['ai_fixable']
-                valid=bool(improved.strip()) and (work_type!='Webページ（HTML）' or not any(
-                    '終了タグがありません' in x for x in next_checks if x not in checks))
-                changed=improved!=draft
-                # Only adopt measurable progress, not merely different AI wording or code edits.
-                better=valid and changed and new_total<old_total and len(next_checks)<=len(checks)
-                item={'round':attempt,'result':'採用（CEO確認待ち）' if better else '不採用（改善未確認・悪化・形式不備）',
+                assessment=assess_candidate(checks,issues,next_checks,next_issues,draft,improved,work_type)
+                better=assessment['accepted']
+                item={'round':attempt,'result':'採用（CEO確認待ち）' if better else '不採用（改善の証拠不足・新規問題・形式不備）',
                       'before_checks':list(checks),'after_checks':list(next_checks),
                       'before_review':review,'after_review':next_review,
-                      'before_status':old_stats,'after_status':new_stats,'changed':changed,
-                      'before_issues':list(issues),'after_issues':list(next_issues)}
+                      'before_status':old_stats,'after_status':new_stats,'changed':improved!=draft,
+                      'before_issues':list(issues),'after_issues':list(next_issues),
+                      'assessment':assessment,'rejection_reasons':assessment['reasons']}
                 rounds.append(item)
                 if not better:
-                    stop_reason='機械チェックとAI修正対象の合計件数が減らず停止（追加API費用を防止）'
+                    stop_reason='修正候補を不採用。理由は実行履歴に記録（追加API費用を防止）'
                     item['stop_reason']=stop_reason
                     break
                 draft,checks,review,issues=improved,next_checks,next_review,next_issues
@@ -406,7 +446,7 @@ def run_work_team(idea,work_type,instruction,feedback='',auto_quality=False):
             'after_status':review_status(checks,issues),
             'stop_reason':stop_reason,
             'before_chars':len(initial_draft),'after_chars':len(draft),
-            'rounds':rounds,'max_rounds':3,'report_version':25,
+            'rounds':rounds,'max_rounds':3,'report_version':26,
         }
         reports['品質チェック（最終）']='\n'.join(checks) if checks else '機械チェックで検出された問題なし（安全性を保証しません）'
     return reports,draft,review
@@ -817,7 +857,7 @@ with tab_business:
 
 
 with tab_work:
-    st.header('🎨 AI PRODUCTION STUDIO / Ver.25')
+    st.header('🎨 AI PRODUCTION STUDIO / Ver.26')
     st.caption('CEOが採用した事業について、AI社員が作業を分担して原稿・コードを制作。公開・送信・支出は自動実行しません。')
     if business_db is None:
         st.error('Supabase接続が必要です。Secretsを確認してください。')
@@ -858,7 +898,7 @@ with tab_work:
             # Ver.22: Human-readable quality report, stored in existing reports JSONB.
             quality_data=(job.get('reports') or {}).get('品質改善レポート')
             if isinstance(quality_data,dict):
-                with st.expander('📋 AI社員の品質改善報告書（Ver.25）',expanded=True):
+                with st.expander('📋 AI社員の品質改善報告書（Ver.26）',expanded=True):
                     report=quality_issue_report(quality_data,job.get('content') or '')
                     st.write('**処理結果：**',quality_data.get('result','未記録'))
                     if not report['verified_record'] and quality_data.get('result','').startswith('初稿を維持'):
@@ -869,8 +909,8 @@ with tab_work:
                         st.error('🔴 未解決の指摘あり：品質改善は完了していません。CEOの確認・修正指示が必要です。')
                     else:
                         st.warning('🟡 簡易チェックでは未解決の指摘なし。ただし実ブラウザテスト・公開承認は未実施です。')
-                    if quality_data.get('report_version')==25:
-                        st.markdown('### 🧠 Ver.25 機械チェック＋AIレビューの別判定')
+                    if quality_data.get('report_version') in (25,26):
+                        st.markdown('### 🧠 Ver.26 機械チェック＋AIレビューの別判定')
                         before_s=quality_data.get('before_status') or {}
                         after_s=quality_data.get('after_status') or {}
                         st.write(f"**機械チェック：** {before_s.get('mechanical',0)}件 → {after_s.get('mechanical',0)}件")
@@ -883,12 +923,18 @@ with tab_work:
                             if found:
                                 for x in found:st.write(f"・【{x.get('severity','中')}】{x.get('title','')}：{x.get('detail','')}")
                             else:st.caption('該当なし（AIの判断であり、品質保証ではありません）')
-                        st.caption('AIレビューは推定評価です。修正前後で指摘の表現が変わることがあり、件数減少だけで解決を保証しません。')
+                        st.caption('AIレビューは推定評価です。Ver.26はAIの指摘件数減少だけでは修正版を自動採用しません。機械チェックで改善の証拠が必要です。実行テストではありません。')
                     if quality_data.get('rounds'):
                         st.markdown('**🔁 自動再修正の実行履歴（最大3回）**')
                         for item in quality_data['rounds']:
                             st.write(f"第{item.get('round')}回：{item.get('result')}")
                             st.caption(f"機械チェック {len(item.get('before_checks') or [])}件 → {len(item.get('after_checks') or [])}件")
+                            if item.get('assessment'):
+                                a=item['assessment']
+                                st.caption('独立した機械チェックで消えた指摘：'+str(len(a.get('fixed_checks') or []))+'件 / 新規指摘：'+str(len(a.get('introduced_checks') or []))+'件')
+                                st.caption(a.get('evidence') or '')
+                            for reason in item.get('rejection_reasons') or []:
+                                st.error('不採用理由：'+str(reason))
                             if item.get('stop_reason'): st.warning(item['stop_reason'])
                             if item.get('error'): st.error(item['error'])
                     else:
