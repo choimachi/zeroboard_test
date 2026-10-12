@@ -1,5 +1,6 @@
 import json
 import base64
+import html
 from datetime import date
 import streamlit as st
 import streamlit.components.v1 as components
@@ -208,6 +209,35 @@ def update_work(work_id,record):
         return bool(business_db.table('work_orders').update(record).eq('id',work_id).select('id').execute().data)
     except Exception as exc:
         st.error('業務の更新に失敗しました。');st.code(str(exc));return False
+
+# Ver.20: version snapshots are saved before a revision overwrites the current draft.
+def save_work_snapshot(job):
+    if business_db is None: return False
+    snapshot={k:job.get(k) for k in ('content','reports','review','feedback','status')}
+    snapshot.update(work_order_id=job['id'],revision=int(job.get('revision') or 1))
+    try:
+        return bool(business_db.table('work_order_versions').upsert(snapshot,on_conflict='work_order_id,revision').select('id').execute().data)
+    except Exception as exc:
+        st.error('旧バージョンの保存に失敗したため、上書きを中止しました。Ver.20のSQLを確認してください。')
+        st.code(str(exc));return False
+
+def load_work_versions(work_id):
+    if business_db is None:return []
+    try:
+        return (business_db.table('work_order_versions').select('*').eq('work_order_id',work_id).order('revision',desc=True).execute().data or [])
+    except Exception as exc:
+        st.warning('制作履歴を取得できません。Ver.20のSQLを確認してください。')
+        st.caption(str(exc));return []
+
+def isolated_html_preview(content):
+    # Strict CSP blocks scripts, network fetches, external CSS/images and form submissions.
+    # sandbox without allow-scripts or allow-same-origin isolates the generated page.
+    import re
+    source=re.sub(r'^\s*```(?:html)?\s*|\s*```\s*$', '', content.strip(), flags=re.I)
+    csp="default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:; script-src 'none'; connect-src 'none'; form-action 'none'; base-uri 'none'"
+    srcdoc=f'<meta http-equiv="Content-Security-Policy" content="{html.escape(csp,quote=True)}">'+source
+    frame=f'<iframe title="AI制作物プレビュー" sandbox="" referrerpolicy="no-referrer" srcdoc="{html.escape(srcdoc,quote=True)}" style="width:100%;height:660px;border:1px solid #999;background:white;border-radius:8px"></iframe>'
+    components.html(frame,height=685,scrolling=False)
 
 def run_work_team(idea,work_type,instruction,feedback=''):
     context=json.dumps({k:idea.get(k) for k in ('title','summary','customer','revenue_model','first_step','risks')},ensure_ascii=False)
@@ -636,7 +666,7 @@ with tab_business:
 
 
 with tab_work:
-    st.header('🛠️ AI WORKSHOP / Ver.19')
+    st.header('🎨 AI PRODUCTION STUDIO / Ver.20')
     st.caption('CEOが採用した事業について、AI社員が作業を分担して原稿・コードを制作。公開・送信・支出は自動実行しません。')
     if business_db is None:
         st.error('Supabase接続が必要です。Secretsを確認してください。')
@@ -675,9 +705,26 @@ with tab_work:
                     st.markdown('**'+role+'**');st.write(report)
             st.markdown('#### 📄 成果物')
             content=job.get('content') or ''
-            if job.get('work_type')=='Webページ（HTML）':st.code(content,language='html')
+            if job.get('work_type')=='Webページ（HTML）':
+                preview_tab,source_tab=st.tabs(['🌐 安全なプレビュー','🧩 HTMLコード'])
+                with preview_tab:
+                    st.caption('隔離プレビュー：JavaScript・外部通信・フォーム送信を禁止。公開はされません。')
+                    isolated_html_preview(content)
+                with source_tab:st.code(content,language='html')
             else:st.text_area('成果物の内容',value=content,height=320,key=f'content_view_{wid}',disabled=True)
             st.download_button('📥 成果物をダウンロード',data=content,file_name=f'zeroboard_work_{wid}'+('.html' if job.get('work_type')=='Webページ（HTML）' else '.txt'),mime='text/html' if job.get('work_type')=='Webページ（HTML）' else 'text/plain',key=f'work_dl_{wid}')
+            with st.expander('🗂️ 制作履歴・過去バージョン'):
+                versions=load_work_versions(wid)
+                if not versions:st.caption('過去の版はまだありません。次回の修正から保存されます。')
+                for old in versions:
+                    st.markdown(f"**第{old.get('revision')}版（{old.get('status') or '状態不明'}）**")
+                    old_content=old.get('content') or ''
+                    if job.get('work_type')=='Webページ（HTML）':
+                        if st.checkbox(f"第{old['revision']}版をプレビュー",key=f"old_preview_{wid}_{old['revision']}"):
+                            isolated_html_preview(old_content)
+                    st.download_button(f"📥 第{old['revision']}版を保存",old_content,file_name=f"zeroboard_work_{wid}_v{old['revision']}"+('.html' if job.get('work_type')=='Webページ（HTML）' else '.txt'),key=f"old_download_{wid}_{old['revision']}")
+                    with st.expander(f"第{old['revision']}版の内容を表示"):
+                        st.code(old_content,language='html' if job.get('work_type')=='Webページ（HTML）' else None)
             st.markdown('#### 🧪 品質・安全レビュー');st.write(job.get('review') or 'レビューなし')
             if state not in ('承認済み','却下'):
                 with st.form(f'work_review_{wid}'):
@@ -698,7 +745,7 @@ with tab_work:
                         try:
                             with st.spinner('AI社員が修正版を制作中...'):
                                 reports,draft,review=run_work_team(idea,job['work_type'],job['instruction'],job.get('feedback') or '')
-                            if update_work(wid,{'reports':reports,'content':draft,'review':review,'revision':int(job.get('revision') or 1)+1,'status':'CEO確認待ち','feedback':''}):
+                            if save_work_snapshot(job) and update_work(wid,{'reports':reports,'content':draft,'review':review,'revision':int(job.get('revision') or 1)+1,'status':'CEO確認待ち','feedback':''}):
                                 st.success('修正版を保存したで。');st.rerun()
                         except Exception as exc:st.error('修正制作に失敗しました。');st.code(str(exc))
     st.caption('🔒 「承認済み」は社内での承認状態です。インターネットへの公開や販売は行いません。')
