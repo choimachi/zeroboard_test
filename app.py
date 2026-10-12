@@ -1,6 +1,7 @@
 import json
 import base64
 import html
+import difflib
 from datetime import date
 import streamlit as st
 import streamlit.components.v1 as components
@@ -300,6 +301,8 @@ def run_work_team(idea,work_type,instruction,feedback='',auto_quality=False):
     checks,review=quality_review(brief,draft,work_type)
     reports['品質チェック（初回）']='\n'.join(checks) if checks else '機械チェックで検出された問題なし（安全性を保証しません）'
     if auto_quality:
+        initial_draft=draft
+        initial_review=review
         # One bounded improvement cycle only: prevents infinite loops and uncontrolled API cost.
         try:
             correction=(brief+'\n以下の初稿を修正してください。全文を省略せず再出力。'
@@ -313,11 +316,23 @@ def run_work_team(idea,work_type,instruction,feedback='',auto_quality=False):
                     not any('終了タグがありません' in issue for issue in checks)):
                 draft,review=improved,final_review
                 reports['品質改善ループ']='初稿レビュー → デバッグAIによる修正 → 再レビュー（最大1回）'
+                reports['品質改善レポート']={
+                    'result':'修正版を採用（CEO確認待ち）',
+                    'before_content':initial_draft,
+                    'before_review':initial_review,
+                    'before_checks':checks,
+                    'after_checks':final_checks,
+                    'after_review':final_review,
+                    'before_chars':len(initial_draft),
+                    'after_chars':len(improved),
+                }
                 reports['品質チェック（最終）']='\n'.join(final_checks) if final_checks else '機械チェックで検出された問題なし（安全性を保証しません）'
             else:
                 reports['品質改善ループ']='修正版が不完全な可能性があるため初稿を維持。CEO確認が必要。'
+                reports['品質改善レポート']={'result':'修正版は不採用。初稿を維持（CEO確認待ち）','before_checks':checks,'after_checks':final_checks,'before_review':initial_review,'after_review':final_review,'before_chars':len(initial_draft),'after_chars':len(improved)}
         except Exception as exc:
             reports['品質改善ループ']='改善処理でエラー。初稿を維持。詳細：'+str(exc)[:500]
+            reports['品質改善レポート']={'result':'改善処理でエラー。初稿を維持（CEO確認待ち）','before_checks':checks,'before_review':initial_review,'after_checks':['再チェック未完了']}
     return reports,draft,review
 
 history=load_meeting_history()
@@ -764,6 +779,36 @@ with tab_work:
             with st.expander('🧠 4役員の作業報告'):
                 for role,report in (job.get('reports') or {}).items():
                     st.markdown('**'+role+'**');st.write(report)
+            # Ver.22: Human-readable quality report, stored in existing reports JSONB.
+            quality_data=(job.get('reports') or {}).get('品質改善レポート')
+            if isinstance(quality_data,dict):
+                with st.expander('📋 AI社員の品質改善報告書（Ver.22）',expanded=True):
+                    st.write('**結果：**',quality_data.get('result','未記録'))
+                    st.write('**🔍 初回に見つかった問題**')
+                    before_issues=quality_data.get('before_checks') or []
+                    if before_issues:
+                        for issue in before_issues:st.write('・'+str(issue))
+                    else:st.write('簡易チェックでは問題未検出（正常動作の保証ではありません）')
+                    st.write('**🔧 修正内容**')
+                    if quality_data.get('before_content') is not None:
+                        original=quality_data['before_content']
+                        updated=job.get('content') or ''
+                        changed=list(difflib.unified_diff(original.splitlines(),updated.splitlines(),fromfile='初稿',tofile='改善後',lineterm=''))
+                        st.write(f"初稿 {len(original):,}文字 → 改善後 {len(updated):,}文字")
+                        st.caption('差分の先頭250行を表示します。全文は下の比較欄で確認できます。')
+                        if changed:st.code('\n'.join(changed[:250]),language='diff')
+                        else:st.info('文字単位の変更はありません。')
+                    else:st.caption('この案件の初稿全文は保存されていません。')
+                    st.write('**✅ 再チェック結果**')
+                    after_issues=quality_data.get('after_checks') or []
+                    if after_issues:
+                        for issue in after_issues:st.write('・'+str(issue))
+                    else:st.write('簡易チェックでは問題未検出（品質保証ではありません）')
+                    with st.expander('🧪 初稿と修正版のAIレビューを比較'):
+                        left,right=st.columns(2)
+                        with left:st.markdown('**初稿レビュー**');st.write(quality_data.get('before_review') or '記録なし')
+                        with right:st.markdown('**改善後レビュー**');st.write(quality_data.get('after_review') or '記録なし')
+                    st.warning('⚠️ AIによるレビュー・文字列差分は実ブラウザでの動作検証ではありません。公開前にCEOが確認してください。')
             st.markdown('#### 📄 成果物')
             content=job.get('content') or ''
             if job.get('work_type')=='Webページ（HTML）':
@@ -786,6 +831,22 @@ with tab_work:
                     st.download_button(f"📥 第{old['revision']}版を保存",old_content,file_name=f"zeroboard_work_{wid}_v{old['revision']}"+('.html' if job.get('work_type')=='Webページ（HTML）' else '.txt'),key=f"old_download_{wid}_{old['revision']}")
                     with st.expander(f"第{old['revision']}版の内容を表示"):
                         st.code(old_content,language='html' if job.get('work_type')=='Webページ（HTML）' else None)
+            if versions:
+                with st.expander('🔀 過去バージョンと現在の成果物を比較（Ver.22）'):
+                    by_rev={int(old.get('revision') or 0):old for old in versions}
+                    selected_rev=st.selectbox('比較する過去の版',sorted(by_rev,reverse=True),key=f'compare_rev_{wid}')
+                    previous=by_rev[selected_rev].get('content') or ''
+                    difference=list(difflib.unified_diff(previous.splitlines(),content.splitlines(),fromfile=f'第{selected_rev}版',tofile=f'第{job.get("revision") or 1}版',lineterm=''))
+                    st.caption(f'旧版 {len(previous):,}文字 / 現行 {len(content):,}文字。差分は先頭500行を表示。')
+                    if difference:st.code('\n'.join(difference[:500]),language='diff')
+                    else:st.info('変更された行はありません。')
+                    col_old,col_new=st.columns(2)
+                    with col_old:
+                        st.markdown('**修正前**')
+                        st.text_area('過去版の全文',previous,height=250,disabled=True,key=f'compare_old_{wid}_{selected_rev}')
+                    with col_new:
+                        st.markdown('**修正後**')
+                        st.text_area('現在版の全文',content,height=250,disabled=True,key=f'compare_new_{wid}_{selected_rev}')
             st.markdown('#### 🧪 品質・安全レビュー');st.write(job.get('review') or 'レビューなし')
             st.caption('AIレビューと簡易HTMLチェックは品質を保証しません。公開前には実機・ブラウザでの動作確認が必要です。')
             if state != '却下':
