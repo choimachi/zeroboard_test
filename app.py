@@ -726,7 +726,7 @@ with tab_work:
                     with st.expander(f"第{old['revision']}版の内容を表示"):
                         st.code(old_content,language='html' if job.get('work_type')=='Webページ（HTML）' else None)
             st.markdown('#### 🧪 品質・安全レビュー');st.write(job.get('review') or 'レビューなし')
-            if state not in ('承認済み','却下'):
+            if state != '却下':
                 with st.form(f'work_review_{wid}'):
                     decision=st.radio('CEOの判断',['確認待ちのまま','承認','修正依頼','却下'],horizontal=True)
                     feedback=st.text_area('修正指示・判断理由',key=f'work_feedback_{wid}')
