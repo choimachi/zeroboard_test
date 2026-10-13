@@ -10,7 +10,7 @@ from supabase import create_client
 
 st.set_page_config(page_title='ZEROBOARD AI', page_icon='🧠', layout='wide')
 st.title('🧠 ZEROBOARD AI')
-st.caption('AI経営会議システム / Ver.29 SHARED QUALITY POLICY')
+st.caption('AI経営会議システム / Ver.30 REVENUE ENGINE / NOTE STUDIO')
 st.write('あなたがCEO。4人のAI役員が議論し、最後に議長AIが経営判断をまとめます。')
 st.divider()
 client = OpenAI(api_key=st.secrets['OPENAI_API_KEY'])
@@ -186,7 +186,7 @@ def evaluate_business_idea(item):
 
 # Ver.19: AI produces drafts only. Publishing, purchases and external operations are not automated.
 WORK_STATES = ['下書き', 'CEO確認待ち', '修正依頼', '承認済み', '却下']
-WORK_TYPES = ['Webページ（HTML）', 'SNS投稿セット', 'ブログ記事', '営業提案文', '電子書籍の章構成']
+WORK_TYPES = ['Webページ（HTML）', 'SNS投稿セット', 'ブログ記事', '営業提案文', '電子書籍の章構成', 'note有料記事']
 
 def work_rows():
     if business_db is None: return []
@@ -265,6 +265,15 @@ def quality_checks(work_type, content):
             pass
         try: Checker().feed(cleaned)
         except Exception as exc: issues.append('HTMLの解析時に問題: '+str(exc))
+    if work_type == 'note有料記事':
+        if '## 無料公開部分' not in content:
+            issues.append('noteの無料公開部分の見出しがありません。')
+        if '## 有料部分' not in content:
+            issues.append('noteの有料部分の見出しがありません。')
+        if '## 購入前にわかること' not in content:
+            issues.append('購入判断に役立つ説明がありません。')
+        if '## 有料部分' in content and '## 無料公開部分' in content and content.index('## 有料部分') < content.index('## 無料公開部分'):
+            issues.append('有料部分が無料公開部分より前にあります。')
     return issues
 
 
@@ -287,6 +296,14 @@ QUALITY_POLICY_HTML = """【ZEROBOARD共通制作・品質基準 Ver.29】
 
 
 def shared_quality_policy(work_type):
+    if work_type == 'note有料記事':
+        return ('【ZEROBOARD NOTE STUDIO 共通基準 Ver.30】Markdownで制作。'
+                '順序は「# タイトル」「## 購入前にわかること」「## 無料公開部分」「## 有料部分」。'
+                '無料部分は本当に役立つ内容を含み、有料部分には具体例・手順・テンプレートなど追加価値を置く。'
+                '架空の体験談・売上・レビュー・引用・統計・出典を捏造しない。'
+                '専門的な医療・法律・投資の断定を避け、根拠が必要な箇所は「要確認」と明記する。'
+                '販売実績・需要・価格の妥当性は未検証。著作権・事実・掲載許可・価格はCEOが確認。'
+                'noteの有料エリア境界は投稿時にCEOが手動設定する。外部投稿・支払いは実行しない。')
     return QUALITY_POLICY_HTML if work_type == 'Webページ（HTML）' else (
         '【ZEROBOARD共通制作・品質基準 Ver.29】未検証情報を断定しない。'
         '出典のない数値・連絡先を捏造しない。構成や文章の欠点はAI修正、'
@@ -465,6 +482,11 @@ def run_work_team(idea,work_type,instruction,feedback='',auto_quality=False):
     brief=policy+'\n'+task+'\n4役員の分析：'+json.dumps(reports,ensure_ascii=False)
     if work_type=='Webページ（HTML）':
         production='完成した静的HTML文書を1ファイル分だけ生成。CSSはstyleタグに含める。外部通信、外部スクリプト、フォーム送信、追跡タグ、課金処理は実装しない。コードブロック不要。店舗の事実は不明なら「要入力」と明記。'
+    elif work_type=='note有料記事':
+        production=('note販売候補の記事をMarkdownで全文作成。共通基準の4つの見出しを順番通りに使う。'
+                    '無料部分に読み応えを持たせ、有料部分に実践的な手順・例・チェックリストを含める。'
+                    '独自の取材や市場調査は行っていないことを理解し、未確認のデータを断定しない。'
+                    '有料境界は見出しで示すだけで、noteへの投稿・課金設定は行わない。')
     else:
         production='CEOがそのまま編集できる完成原稿を日本語で制作。具体的な本文を省略せず、未検証情報は断定しない。'
     draft=ask_ai('あなたはZEROBOARDの制作AI（開発・UI/UX・編集担当）です。共通制作基準に従う。'+production,brief)
@@ -541,7 +563,7 @@ def run_work_team(idea,work_type,instruction,feedback='',auto_quality=False):
 history=load_meeting_history()
 dashboard_items=[x for x in history if x.get('decision') or x.get('next_action')]
 active_items=sorted([x for x in dashboard_items if x.get('status') in ('未着手','進行中')],key=sort_key)
-tab_office,tab_business,tab_work,tab_dashboard,tab_meeting,tab_memory=st.tabs(['🏢 AI OFFICE','💼 BUSINESS LAB','🛠️ AI WORKSHOP','📊 CEO DASHBOARD','🧠 経営会議','📚 MEMORY'])
+tab_office,tab_business,tab_note,tab_work,tab_dashboard,tab_meeting,tab_memory=st.tabs(['🏢 AI OFFICE','💼 BUSINESS LAB','📝 NOTE STUDIO','🛠️ AI WORKSHOP','📊 CEO DASHBOARD','🧠 経営会議','📚 MEMORY'])
 
 with tab_office:
     st.header('🎮 ZEROBOARD AI / Ver.23 — LIVING OFFICE')
@@ -943,8 +965,91 @@ with tab_business:
     st.caption('🔒 採用しても外部公開・販売・支払いは自動実行されません。CEOが別途判断してください。')
 
 
+# Ver.30 Phase 1: A real note drafting workflow, using existing work_orders tables.
+# The CEO explicitly authorizes each API call and each storage write.
+with tab_note:
+    st.header('📝 NOTE STUDIO / Ver.30 REVENUE ENGINE')
+    st.caption('ジャンル自由・CEO指示型。企画→記事全文→AIレビュー→下書き保存。自動投稿・販売・決済はしません。')
+    st.info('最初の目標は「公開前に確認できるnote商品を1件作る」こと。売上は未検証で、公開・有料エリア設定はCEOがnote上で行います。')
+    if business_db is None:
+        st.error('NOTE STUDIOの保存には既存のSUPABASE_SERVICE_ROLE_KEY設定が必要です。')
+    with st.form('note_studio_generate'):
+        note_topic=st.text_input('記事のテーマ・ジャンル（自由入力）',placeholder='例：京都の小規模店舗が低予算で集客を改善する方法')
+        note_audience=st.text_input('想定読者',value='これから始める初心者')
+        note_value=st.text_area('購入者に届けたい具体的な価値',placeholder='例：明日から使える実践手順、テンプレート、失敗例')
+        note_price=st.number_input('検証したい販売価格（円・未確定）',min_value=0,max_value=1000000,value=500,step=100)
+        note_extra=st.text_area('CEOからの追加条件（任意）',placeholder='例：難しい専門用語を避ける、見出しと具体例を多く')
+        note_auto=st.checkbox('🧪 AI品質改善ループを追加実行（最大3回・API料金増）',value=False)
+        generate_note=st.form_submit_button('📝 AI社員にnote記事を制作させる',type='primary',disabled=business_db is None)
+    if generate_note:
+        if not note_topic.strip():
+            st.warning('記事のテーマを入力してな。')
+        else:
+            try:
+                note_instruction=(f'テーマ：{note_topic.strip()}\n想定読者：{note_audience.strip()}\n'
+                                  f'届けたい価値：{note_value.strip() or "具体的な実践方法"}\n'
+                                  f'価格仮説：{note_price}円（妥当性未検証）\n'
+                                  f'追加条件：{note_extra.strip()}\n'
+                                  '事実を捏造せず、読者が支払う価値を具体化してください。')
+                placeholder_idea={'title':note_topic.strip(),'summary':note_value.strip(),
+                                  'customer':note_audience.strip(),'revenue_model':'note有料記事（未販売）',
+                                  'first_step':'CEOが原稿を検証','risks':'需要・著作権・正確性・販売可否は未検証'}
+                with st.spinner('4役員→制作AI→品質AIが記事を制作しています（API料金が発生します）...'):
+                    note_reports,note_draft,note_review=run_work_team(placeholder_idea,'note有料記事',note_instruction,auto_quality=note_auto)
+                note_reports['NOTE制作仕様']={'theme':note_topic.strip(),'audience':note_audience.strip(),
+                                          'price_hypothesis_yen':int(note_price),'publication':'CEO手動',
+                                          'paid_boundary':'CEOがnote投稿画面で設定','version':30}
+                st.session_state['note_pending_v30']={'idea':placeholder_idea,'reports':note_reports,
+                    'draft':note_draft,'review':note_review,'instruction':note_instruction}
+                st.success('原稿を生成しました。内容を確認してから、下の保存ボタンを押してください。')
+            except Exception as exc:
+                st.error('note記事の制作に失敗しました。');st.code(str(exc))
+    pending_note=st.session_state.get('note_pending_v30')
+    if pending_note:
+        st.subheader('📄 未保存の原稿（CEO確認用）')
+        st.warning('記事の正確性・著作権・販売価格・有料にする部分はCEOが確認してください。')
+        st.text_area('生成した記事全文',pending_note['draft'],height=350,disabled=True,key='note_pending_full_v30')
+        st.markdown('**🧪 品質レビュー**');st.write(pending_note['review'])
+        st.download_button('📥 原稿をMarkdownで保存',pending_note['draft'],file_name='zeroboard_note_draft.md',mime='text/markdown',key='note_pending_download')
+        left,right=st.columns(2)
+        with left:
+            if st.button('💾 CEO確認待ちとしてDBへ保存',type='primary',key='note_save_v30',disabled=business_db is None):
+                try:
+                    idea_record={**pending_note['idea'],'source':'CEO提案','status':'採用',
+                                 'estimated_cost':0,'expected_revenue':0,'notes':'NOTE STUDIO Ver.30で作成','evaluation':''}
+                    data=(business_db.table('business_ideas').insert(idea_record).select('id').execute().data or [])
+                    if not data: raise ValueError('記事用の事業IDを作成できませんでした。')
+                    record={'business_idea_id':data[0]['id'],'title':pending_note['idea']['title'],
+                            'work_type':'note有料記事','instruction':pending_note['instruction'],
+                            'reports':pending_note['reports'],'content':pending_note['draft'],
+                            'review':pending_note['review'],'status':'CEO確認待ち','revision':1,'feedback':''}
+                    if save_work(record):
+                        st.session_state['note_pending_v30']=None
+                        st.success('保存完了。「🛠️ AI WORKSHOP」で原稿と承認・修正指示を確認できるで。')
+                        st.rerun()
+                    else:
+                        st.warning('事業案は保存されましたが原稿保存に失敗しました。再保存すると事業案が重複する可能性があります。')
+                except Exception as exc:
+                    st.error('保存に失敗しました。');st.code(str(exc))
+        with right:
+            if st.button('🗑️ 未保存の原稿を破棄',key='note_discard_v30'):
+                st.session_state['note_pending_v30']=None;st.rerun()
+    st.divider()
+    st.subheader('📚 保存済みnote記事')
+    if business_db is not None:
+        for note_job in [row for row in work_rows() if row.get('work_type')=='note有料記事']:
+            with st.expander(f"{note_job.get('status') or '未分類'}｜第{note_job.get('revision') or 1}版｜{note_job.get('title') or '無題'}"):
+                note_meta=(note_job.get('reports') or {}).get('NOTE制作仕様') or {}
+                st.caption(f"想定価格：{note_meta.get('price_hypothesis_yen','未設定')}円（売上ではありません）")
+                st.markdown(note_job.get('content') or '')
+                st.download_button('📥 note原稿（Markdown）',note_job.get('content') or '',
+                    file_name=f"note_{note_job['id']}.md",mime='text/markdown',key=f"note_dl_{note_job['id']}")
+                st.caption('承認・修正・版管理は「🛠️ AI WORKSHOP」で行ってください。noteへの自動投稿はありません。')
+    st.caption('STICKER STUDIO・FINANCE・自律実行は次フェーズで実装予定。Ver.30では未実装です。')
+
+
 with tab_work:
-    st.header('🎨 AI PRODUCTION STUDIO / Ver.29')
+    st.header('🎨 AI PRODUCTION STUDIO / Ver.30')
     st.caption('CEOが採用した事業について、AI社員が作業を分担して原稿・コードを制作。公開・送信・支出は自動実行しません。')
     if business_db is None:
         st.error('Supabase接続が必要です。Secretsを確認してください。')
@@ -1125,7 +1230,7 @@ with tab_work:
                     isolated_html_preview(content)
                 with source_tab:st.code(content,language='html')
             else:st.text_area('成果物の内容',value=content,height=320,key=f'content_view_{wid}',disabled=True)
-            st.download_button('📥 成果物をダウンロード',data=content,file_name=f'zeroboard_work_{wid}'+('.html' if job.get('work_type')=='Webページ（HTML）' else '.txt'),mime='text/html' if job.get('work_type')=='Webページ（HTML）' else 'text/plain',key=f'work_dl_{wid}')
+            st.download_button('📥 成果物をダウンロード',data=content,file_name=f'zeroboard_work_{wid}'+('.html' if job.get('work_type')=='Webページ（HTML）' else ('.md' if job.get('work_type')=='note有料記事' else '.txt')),mime='text/html' if job.get('work_type')=='Webページ（HTML）' else 'text/plain',key=f'work_dl_{wid}')
             with st.expander('🗂️ 制作履歴・過去バージョン'):
                 versions=load_work_versions(wid)
                 if not versions:st.caption('過去の版はまだありません。次回の修正から保存されます。')
@@ -1135,7 +1240,7 @@ with tab_work:
                     if job.get('work_type')=='Webページ（HTML）':
                         if st.checkbox(f"第{old['revision']}版をプレビュー",key=f"old_preview_{wid}_{old['revision']}"):
                             isolated_html_preview(old_content)
-                    st.download_button(f"📥 第{old['revision']}版を保存",old_content,file_name=f"zeroboard_work_{wid}_v{old['revision']}"+('.html' if job.get('work_type')=='Webページ（HTML）' else '.txt'),key=f"old_download_{wid}_{old['revision']}")
+                    st.download_button(f"📥 第{old['revision']}版を保存",old_content,file_name=f"zeroboard_work_{wid}_v{old['revision']}"+('.html' if job.get('work_type')=='Webページ（HTML）' else ('.md' if job.get('work_type')=='note有料記事' else '.txt')),key=f"old_download_{wid}_{old['revision']}")
                     with st.expander(f"第{old['revision']}版の内容を表示"):
                         st.code(old_content,language='html' if job.get('work_type')=='Webページ（HTML）' else None)
             if versions:
