@@ -10,7 +10,7 @@ from supabase import create_client
 
 st.set_page_config(page_title='ZEROBOARD AI', page_icon='🧠', layout='wide')
 st.title('🧠 ZEROBOARD AI')
-st.caption('AI経営会議システム / Ver.27 EVIDENCE-FIRST QUALITY GATE')
+st.caption('AI経営会議システム / Ver.28 CONTROLLED REVISION GATE')
 st.write('あなたがCEO。4人のAI役員が議論し、最後に議長AIが経営判断をまとめます。')
 st.divider()
 client = OpenAI(api_key=st.secrets['OPENAI_API_KEY'])
@@ -323,13 +323,22 @@ def issue_key(issue):
     return (str(issue.get('owner') or ''),title)
 
 
-def assess_candidate(old_checks, old_issues, new_checks, new_issues, old_content, new_content, work_type):
-    """Ver.27: accept an improved *draft for CEO inspection*, never certify it.
+def change_summary(before, after):
+    """Observable edit size; not a proof of correctness."""
+    old_lines=before.splitlines()
+    new_lines=after.splitlines()
+    matcher=difflib.SequenceMatcher(None, old_lines, new_lines, autojunk=False)
+    altered=sum(max(i2-i1, j2-j1) for op,i1,i2,j1,j2 in matcher.get_opcodes() if op!='equal')
+    return {'old_lines':len(old_lines),'new_lines':len(new_lines),
+            'changed_lines_estimate':altered,'change_ratio':round(1-matcher.ratio(),3)}
 
-    Deterministic checks provide repeatable evidence. AI review text and counts
-    are non-deterministic; new high-severity findings still block promotion.
+
+def assess_candidate(old_checks, old_issues, new_checks, new_issues, old_content, new_content, work_type):
+    """Ver.28: deterministic improvements can be adopted as drafts.
+
+    AI-only improvements must be manually inspected, never auto-promoted merely
+    because a stochastic reviewer changed a title or a count.
     """
-    reasons=[]
     old_ai={issue_key(x) for x in old_issues if x.get('owner')=='AI修正'}
     new_ai={issue_key(x) for x in new_issues if x.get('owner')=='AI修正'}
     old_ceo={issue_key(x) for x in old_issues if x.get('owner')=='CEO確認'}
@@ -338,41 +347,38 @@ def assess_candidate(old_checks, old_issues, new_checks, new_issues, old_content
     introduced_checks=[x for x in new_checks if x not in old_checks]
     fixed_ai=old_ai-new_ai
     introduced_ai=new_ai-old_ai
-    new_high_ai=[x for x in new_issues if x.get('owner')=='AI修正'
-                 and x.get('severity')=='高' and issue_key(x) in introduced_ai]
+    introduced_high=[x for x in new_issues if x.get('owner')=='AI修正' and
+                     x.get('severity')=='高' and issue_key(x) in introduced_ai]
+    hard=('JavaScriptまたはイベント属性','フォーム・埋め込み要素',
+          '外部リソースへの参照','HTML文書の終了タグ','HTML文書の開始宣言')
+    bad_html=(work_type=='Webページ（HTML）' and
+              any(any(tag in check for tag in hard) for check in new_checks))
     changed=bool(new_content.strip()) and new_content!=old_content
-    if not changed:
-        reasons.append('成果物が空、または変更されていません。')
-    if introduced_checks:
-        reasons.append('新しい機械チェック違反が発生しました。')
-    # Existing mechanical violations may remain, but never permit a newly
-    # introduced or unresolved high-risk static HTML violation.
-    if work_type=='Webページ（HTML）':
-        hard=('JavaScriptまたはイベント属性','フォーム・埋め込み要素','外部リソースへの参照',
-              'HTML文書の終了タグ','HTML文書の開始宣言')
-        if any(any(marker in finding for marker in hard) for finding in new_checks):
-            reasons.append('静的HTMLの禁止要素または基本構造の不備が残っています。')
-    if new_high_ai:
-        reasons.append('新規の重大なAI修正指摘があり、CEO確認前の候補採用を停止しました。')
-    if not fixed_checks:
-        reasons.append('独立した機械チェックで改善を確認できませんでした。')
-    # Wording changes, total AI issue count and CEO check count are not
-    # reliable regression evidence; surface them without blocking by count.
+    reasons=[]
+    if not changed: reasons.append('成果物が空、または内容が変更されていません。')
+    if introduced_checks: reasons.append('新しい機械チェック違反が発生しました。')
+    if bad_html: reasons.append('静的HTMLの禁止要素または基本構造の不備が残っています。')
+    if introduced_high: reasons.append('新規の重大なAI修正指摘が発生しました。')
+    safe_candidate=changed and not introduced_checks and not bad_html and not introduced_high
+    # auto-accept only observable improvements in the deterministic checks
+    accepted=safe_candidate and bool(fixed_checks)
+    manual_candidate=safe_candidate and not fixed_checks
+    if manual_candidate:
+        reasons.append('機械チェックで改善の証拠がないため、CEOの比較確認が必要です。')
     warnings=[]
-    if introduced_ai:
-        warnings.append('AIレビューで新たな修正指摘があります。表現差か実問題かCEOが確認してください。')
-    if len(new_ceo)>len(old_ceo):
-        warnings.append('CEO確認事項が増えています。未確認のまま公開しないでください。')
-    if new_ai:
-        warnings.append('AI修正指摘が残っています。候補採用は品質合格を意味しません。')
-    return {
-        'accepted':not reasons,'reasons':reasons,'warnings':warnings,
-        'fixed_checks':fixed_checks,'introduced_checks':introduced_checks,
-        'fixed_ai_titles':[x[1] for x in sorted(fixed_ai)],
-        'introduced_ai_titles':[x[1] for x in sorted(introduced_ai)],
-        'ceo_before':len(old_ceo),'ceo_after':len(new_ceo),
-        'evidence':'独立した機械チェックの指摘解消を確認。AIレビューは推定であり、ブラウザ実行検証・品質保証ではありません。'
-    }
+    if introduced_ai: warnings.append('AIレビューに新しい修正指摘があります。表現差か実際の問題か確認してください。')
+    if len(new_ceo)>len(old_ceo):warnings.append('CEO確認事項が増えています。')
+    if new_ai:warnings.append('AIの修正指摘が残っています。自動公開はしません。')
+    return {'accepted':accepted,'manual_candidate':manual_candidate,
+            'reasons':reasons,'warnings':warnings,'fixed_checks':fixed_checks,
+            'introduced_checks':introduced_checks,
+            'fixed_ai_titles':[x[1] for x in sorted(fixed_ai)],
+            'introduced_ai_titles':[x[1] for x in sorted(introduced_ai)],
+            'ceo_before':len(old_ceo),'ceo_after':len(new_ceo),
+            'change':change_summary(old_content,new_content),
+            'evidence':('機械チェック改善を候補採用の根拠としました。' if accepted else
+                        'AIレビュー上の改善は独立検証されていません。')+
+                       ' ブラウザ実行テスト・品質保証ではありません。'}
 
 
 def quality_issue_report(data, current_content):
@@ -386,7 +392,7 @@ def quality_issue_report(data, current_content):
     unresolved_ai=('判定: 要修正' in review or '判定：要修正' in review)
     original=data.get('before_content')
     changed=(isinstance(original,str) and original!=current_content)
-    accepted='修正版を採用' in str(data.get('result',''))
+    accepted=str(data.get('result','')).startswith('修正版を採用')
     verified=accepted and isinstance(original,str) and bool(review)
     return {'fixed':fixed,'remaining':remaining,'introduced':introduced,
             'ai_needs_revision':unresolved_ai,'changed':changed,
@@ -416,6 +422,7 @@ def run_work_team(idea,work_type,instruction,feedback='',auto_quality=False):
     if auto_quality:
         initial_draft,initial_review,initial_checks,initial_issues=draft,review,list(checks),list(issues)
         rounds=[]
+        manual_proposal=None
         stop_reason=''
         for attempt in range(1,4):
             pending=actionable_issues(checks,issues)
@@ -423,17 +430,21 @@ def run_work_team(idea,work_type,instruction,feedback='',auto_quality=False):
                 stop_reason='AIが修正できる指摘なし。CEO確認事項は自動修正しません。'
                 break
             try:
-                correction=(brief+'\n以下の修正可能な指摘のみ修正して成果物全文を出力。'
+                correction=(brief+'\n【Ver.28 限定修正】対象の指摘に関係する箇所のみ最小限に変更。'
+                            'ヘッダー、コピー、連絡先プレースホルダー、見出し、レイアウトなど、'
+                            '指摘と無関係の箇所はそのまま維持。機能や要素を丸ごと削って問題を隠さない。'
+                            '必要な機能を禁止要素なしで実現できない場合は勝手に実装しない。'
+                            '説明・差分・コードブロックを混ぜず、修正後の成果物全文だけを返す。'
                             'CEO確認が必要な情報は推測・捏造しない。\n修正対象：'
                             +json.dumps(pending,ensure_ascii=False)
-                            +'\n現在の成果物：'+draft[:28000])
+                            +'\n現在の成果物（変更箇所を最小化）：'+draft[:28000])
                 improved=ask_ai('あなたはZEROBOARDのデバッグ・改善AIです。'+production+' 指摘を修正し成果物だけを出力。',correction)
                 next_checks,next_review,next_issues=quality_review(brief,improved,work_type)
                 old_stats=review_status(checks,issues)
                 new_stats=review_status(next_checks,next_issues)
                 assessment=assess_candidate(checks,issues,next_checks,next_issues,draft,improved,work_type)
                 better=assessment['accepted']
-                item={'round':attempt,'result':'候補採用（未解決指摘はCEO確認）' if better else '不採用（改善の証拠不足・新規問題・形式不備）',
+                item={'round':attempt,'result':'候補採用（CEO確認待ち）' if better else ('CEO比較候補として保管' if assessment['manual_candidate'] else '不採用・ロールバック'),
                       'before_checks':list(checks),'after_checks':list(next_checks),
                       'before_review':review,'after_review':next_review,
                       'before_status':old_stats,'after_status':new_stats,'changed':improved!=draft,
@@ -441,7 +452,15 @@ def run_work_team(idea,work_type,instruction,feedback='',auto_quality=False):
                       'assessment':assessment,'rejection_reasons':assessment['reasons']}
                 rounds.append(item)
                 if not better:
-                    stop_reason='修正候補を不採用。理由は実行履歴に記録（追加API費用を防止）'
+                    # A failed repair never overwrites the current accepted draft.
+                    if assessment['manual_candidate']:
+                        manual_proposal={'content':improved,'review':next_review,
+                                         'checks':list(next_checks),'issues':list(next_issues),
+                                         'assessment':assessment,'round':attempt,
+                                         'base_content':draft}
+                        stop_reason='機械チェックで改善を証明できないため、修正案をCEO比較候補に保存して停止'
+                    else:
+                        stop_reason='悪化または検証不能な修正をロールバックして停止（追加API費用を防止）'
                     item['stop_reason']=stop_reason
                     break
                 draft,checks,review,issues=improved,next_checks,next_review,next_issues
@@ -461,7 +480,8 @@ def run_work_team(idea,work_type,instruction,feedback='',auto_quality=False):
             'after_status':review_status(checks,issues),
             'stop_reason':stop_reason,
             'before_chars':len(initial_draft),'after_chars':len(draft),
-            'rounds':rounds,'max_rounds':3,'report_version':27,
+            'rounds':rounds,'max_rounds':3,'report_version':28,
+            'manual_proposal':manual_proposal,
         }
         reports['品質チェック（最終）']='\n'.join(checks) if checks else '機械チェックで検出された問題なし（安全性を保証しません）'
     return reports,draft,review
@@ -872,7 +892,7 @@ with tab_business:
 
 
 with tab_work:
-    st.header('🎨 AI PRODUCTION STUDIO / Ver.27')
+    st.header('🎨 AI PRODUCTION STUDIO / Ver.28')
     st.caption('CEOが採用した事業について、AI社員が作業を分担して原稿・コードを制作。公開・送信・支出は自動実行しません。')
     if business_db is None:
         st.error('Supabase接続が必要です。Secretsを確認してください。')
@@ -909,14 +929,17 @@ with tab_work:
             st.write('**CEOの指示：**',job.get('instruction') or '')
             with st.expander('🧠 4役員の作業報告'):
                 for role,report in (job.get('reports') or {}).items():
+                    if role=='品質改善レポート':continue
                     st.markdown('**'+role+'**');st.write(report)
             # Ver.22: Human-readable quality report, stored in existing reports JSONB.
             quality_data=(job.get('reports') or {}).get('品質改善レポート')
             if isinstance(quality_data,dict):
-                with st.expander('📋 AI社員の品質改善報告書（Ver.27）',expanded=True):
+                with st.expander('📋 AI社員の品質改善報告書（Ver.28）',expanded=True):
                     report=quality_issue_report(quality_data,job.get('content') or '')
                     st.write('**処理結果：**',quality_data.get('result','未記録'))
-                    if not report['verified_record'] and quality_data.get('result','').startswith('初稿を維持'):
+                    if str(quality_data.get('result','')).startswith('CEOが保留候補を手動採用'):
+                        st.warning('🟡 CEOが比較候補を社内ドラフトとして採用しました。品質合格・公開済みではありません。')
+                    elif not report['verified_record'] and quality_data.get('result','').startswith('初稿を維持'):
                         st.warning('🟡 修正版は採用されていません。初稿を維持しています。')
                     elif not report['verified_record']:
                         st.error('🔴 修正の採用・比較記録が不完全です。改善成功とは判定できません。')
@@ -924,8 +947,8 @@ with tab_work:
                         st.error('🔴 未解決の指摘あり：品質改善は完了していません。CEOの確認・修正指示が必要です。')
                     else:
                         st.warning('🟡 機械チェックで未解決の指摘なし。ただしAI指摘・CEO確認事項、実ブラウザテスト・公開承認は別途確認してください。')
-                    if quality_data.get('report_version') in (25,26,27):
-                        st.markdown('### 🧠 Ver.27 機械チェック＋AIレビューの別判定')
+                    if quality_data.get('report_version') in (25,26,27,28):
+                        st.markdown('### 🧠 機械チェック＋AIレビューの別判定')
                         before_s=quality_data.get('before_status') or {}
                         after_s=quality_data.get('after_status') or {}
                         st.write(f"**機械チェック：** {before_s.get('mechanical',0)}件 → {after_s.get('mechanical',0)}件")
@@ -938,7 +961,52 @@ with tab_work:
                             if found:
                                 for x in found:st.write(f"・【{x.get('severity','中')}】{x.get('title','')}：{x.get('detail','')}")
                             else:st.caption('該当なし（AIの判断であり、品質保証ではありません）')
-                        st.caption('AIレビューは推定評価です。Ver.27は機械チェックの改善を採用根拠とし、AIレビューの表現差や件数だけで不採用にしません。重大な新規指摘や禁止要素は停止します。採用はCEO確認用の候補であり、品質合格・実行テストではありません。')
+                        st.caption('Ver.28：独立した機械チェック改善を自動採用の根拠とし、AI指摘だけの変化はCEO比較候補に保管。新しい機械的違反や重大指摘はロールバックします。ブラウザ実行テスト・品質保証ではありません。')
+                    proposal=quality_data.get('manual_proposal') if quality_data.get('report_version')==28 else None
+                    if isinstance(proposal,dict) and proposal.get('content'):
+                        st.markdown('### 👑 CEO専用：保留した修正候補')
+                        st.warning('機械チェックの改善を証明できなかったため、自動採用せず保管しました。現在の成果物は変更されていません。')
+                        st.caption('これは品質合格ではありません。AIレビューに表現差があり得ます。プレビューと差分を確認してください。')
+                        candidate_text=proposal['content']
+                        st.write('**候補の機械チェック：**',len(proposal.get('checks') or []),'件')
+                        if proposal.get('checks'):
+                            for finding in proposal['checks']:st.write('・'+str(finding))
+                        proposal_diff=list(difflib.unified_diff(
+                            (proposal.get('base_content') or '').splitlines(),candidate_text.splitlines(),
+                            fromfile='修正前',tofile='保留候補',lineterm=''))
+                        with st.expander('🔍 修正候補との差分（最大300行）'):
+                            st.code('\n'.join(proposal_diff[:300]) or '差分なし',language='diff')
+                        if job.get('work_type')=='Webページ（HTML）':
+                            with st.expander('🌐 保留候補を隔離プレビュー'):
+                                isolated_html_preview(candidate_text)
+                        st.download_button('📥 保留候補をダウンロード',candidate_text,
+                            file_name=f'zeroboard_work_{wid}_candidate'+('.html' if job.get('work_type')=='Webページ（HTML）' else '.txt'),
+                            key=f'candidate_dl_{wid}')
+                        st.write('**AIレビュー（候補）：**',proposal.get('review') or '記録なし')
+                        if state not in ('却下','承認済み'):
+                            confirm=st.checkbox('差分と内容を確認した。候補を現在の社内ドラフトとして採用する（公開しない）',
+                                key=f'candidate_confirm_{wid}')
+                            if st.button('👑 保留候補を手動採用',key=f'candidate_approve_{wid}',disabled=not confirm):
+                                # Snapshot before changing the saved draft.
+                                if (job.get('content') or '')!=(proposal.get('base_content') or ''):
+                                    st.error('元のドラフトが更新されています。候補の前提が異なるため採用できません。')
+                                elif save_work_snapshot(job):
+                                    next_reports=dict(job.get('reports') or {})
+                                    next_quality=dict(quality_data)
+                                    next_quality.update(result='CEOが保留候補を手動採用（公開前確認待ち）',
+                                        after_checks=proposal.get('checks') or [],
+                                        after_review=proposal.get('review') or '',
+                                        after_issues=proposal.get('issues') or [],
+                                        after_status=review_status(proposal.get('checks') or [],proposal.get('issues') or []),
+                                        after_chars=len(candidate_text),manual_proposal=None,
+                                        stop_reason='CEOが比較候補を手動採用（ブラウザテスト・公開承認は未実施）')
+                                    next_reports['品質改善レポート']=next_quality
+                                    if update_work(wid,{'reports':next_reports,'content':candidate_text,
+                                                        'review':proposal.get('review') or '',
+                                                        'revision':int(job.get('revision') or 1)+1,
+                                                        'status':'CEO確認待ち','feedback':''}):
+                                        st.success('候補を新しい社内ドラフトとして保存しました。公開はしていません。')
+                                        st.rerun()
                     if quality_data.get('rounds'):
                         st.markdown('**🔁 自動再修正の実行履歴（最大3回）**')
                         for item in quality_data['rounds']:
@@ -955,7 +1023,7 @@ with tab_work:
                             if item.get('stop_reason'): st.warning(item['stop_reason'])
                             if item.get('error'): st.error(item['error'])
                     else:
-                        st.caption('この案件にはVer.24の再修正履歴がありません。過去の案件は自動で再実行されません。')
+                        st.caption('この案件には自動再修正履歴がありません。過去の案件は自動で再実行されません。')
                     st.write('**🔍 初回に見つかった機械チェックの問題**')
                     initial=quality_data.get('before_checks') or []
                     if initial:
