@@ -1,10 +1,11 @@
-"""ZEROBOARD Ver.31 daily evidence-first research agent.
+"""ZEROBOARD Ver.32 daily evidence-first research agent.
 
 Runs in GitHub Actions independently of Streamlit. Public RSS metadata only;
 never downloads or republishes full copyrighted news articles.
 """
 import argparse
 import datetime as dt
+import email.utils
 import hashlib
 import json
 import os
@@ -19,6 +20,8 @@ from zoneinfo import ZoneInfo
 JST = ZoneInfo('Asia/Tokyo')
 MODEL = os.getenv('RESEARCH_MODEL', 'gpt-5-mini')
 MAX_ITEMS_EACH = 5
+MAX_MARKET_ITEMS = 3
+MAX_SOURCE_AGE_DAYS = 21
 MAX_PROMPT_CHARS = 13500
 # Conservative *configurable* cost estimate, NOT provider-side billing/cap.
 BUDGET_YEN = 500.0
@@ -28,12 +31,17 @@ INPUT_USD_PER_M = float(os.getenv('RESEARCH_INPUT_USD_PER_M', '1.00'))
 OUTPUT_USD_PER_M = float(os.getenv('RESEARCH_OUTPUT_USD_PER_M', '8.00'))
 MAX_OUTPUT_TOKENS = 6000
 FEEDS = [
- ('国内', 'Google News 日本 経済', 'https://news.google.com/rss/search?q='+urllib.parse.quote('日本 経済 金利 物価')+'&hl=ja&gl=JP&ceid=JP:ja'),
- ('国内', 'Google News 日本 政策 AI', 'https://news.google.com/rss/search?q='+urllib.parse.quote('日本 政策 AI 政治')+'&hl=ja&gl=JP&ceid=JP:ja'),
+ ('国内', '日本経済・金利', 'https://news.google.com/rss/search?q='+urllib.parse.quote('日本経済 金利 物価')+'&hl=ja&gl=JP&ceid=JP:ja'),
+ ('国内', '日本政策・社会', 'https://news.google.com/rss/search?q='+urllib.parse.quote('日本 政策 社会')+'&hl=ja&gl=JP&ceid=JP:ja'),
+ ('国内', '日本AI・ビジネス', 'https://news.google.com/rss/search?q='+urllib.parse.quote('日本 AI ビジネス 規制')+'&hl=ja&gl=JP&ceid=JP:ja'),
  ('海外', 'BBC Business', 'https://feeds.bbci.co.uk/news/business/rss.xml'),
- ('海外', 'Google News World Economy', 'https://news.google.com/rss/search?q='+urllib.parse.quote('global economy trade central bank')+'&hl=en-US&gl=US&ceid=US:en'),
- ('海外', 'Google News Technology', 'https://news.google.com/rss/search?q='+urllib.parse.quote('artificial intelligence policy regulation')+'&hl=en-US&gl=US&ceid=US:en'),
+ ('海外', 'World Economy', 'https://news.google.com/rss/search?q='+urllib.parse.quote('world economy trade central bank')+'&hl=en-US&gl=US&ceid=US:en'),
+ ('海外', 'World Technology', 'https://news.google.com/rss/search?q='+urllib.parse.quote('AI regulation investment technology')+'&hl=en-US&gl=US&ceid=US:en'),
+ # These feeds show public *signals* and discussions, NOT note sales data.
+ ('市場', 'デジタル商品・note', 'https://news.google.com/rss/search?q='+urllib.parse.quote('note 有料記事 デジタル商品 コンテンツ 販売')+'&hl=ja&gl=JP&ceid=JP:ja'),
+ ('市場', '小規模事業・副業', 'https://news.google.com/rss/search?q='+urllib.parse.quote('副業 AI 活用 小規模事業')+'&hl=ja&gl=JP&ceid=JP:ja'),
 ]
+
 
 
 def clean_text(value):
@@ -54,6 +62,55 @@ def rss_items(xml_data, region, feed_name):
     return items
 
 
+def age_days(published, now=None):
+    """Return JST-relative age where RSS date is parseable; future/unknown => None."""
+    if not published:
+        return None
+    try:
+        d=email.utils.parsedate_to_datetime(published)
+        if d.tzinfo is None:
+            return None
+        now=now or dt.datetime.now(dt.timezone.utc)
+        age=(now.astimezone(dt.timezone.utc)-d.astimezone(dt.timezone.utc)).total_seconds()/86400
+        return int(age) if age>=0 else None
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def pick_diverse(items, max_count, used):
+    """Round-robin across feeds before taking a second item; skip dated old news."""
+    pools={}
+    for item in items:
+        age=age_days(item.get('published'))
+        if age is not None and age>MAX_SOURCE_AGE_DAYS:
+            continue
+        normalized=re.sub(r'\W+', '', item['title']).lower()
+        key=hashlib.sha256(normalized.encode()).hexdigest()
+        if key in used:
+            continue
+        entry=dict(item)
+        entry['_key']=key
+        entry['age_days']=age
+        pools.setdefault(item['source'],[]).append(entry)
+    selected=[]
+    while pools and len(selected)<max_count:
+        made_progress=False
+        for source in list(pools):
+            pool=pools[source]
+            while pool and pool[0]['_key'] in used:
+                pool.pop(0)
+            if pool and len(selected)<max_count:
+                entry=pool.pop(0)
+                used.add(entry.pop('_key'))
+                selected.append(entry)
+                made_progress=True
+            if not pool:
+                del pools[source]
+        if not made_progress:
+            break
+    return selected
+
+
 def fetch_metadata():
     all_items, errors = [], []
     for region, name, url in FEEDS:
@@ -65,19 +122,10 @@ def fetch_metadata():
         except Exception as exc:
             errors.append(f'{name}: {type(exc).__name__}: {str(exc)[:120]}')
     used, selected = set(), []
-    for region in ('国内', '海外'):
-        pool = [i for i in all_items if i['region'] == region]
-        for item in pool:
-            normalized = re.sub(r'\W+', '', item['title']).lower()
-            key = hashlib.sha256(normalized.encode()).hexdigest()
-            if key in used:
-                continue
-            used.add(key)
-            selected.append(item)
-            if sum(x['region']==region for x in selected) >= MAX_ITEMS_EACH:
-                break
-    for idx, item in enumerate(selected, 1):
-        item['id'] = f'S{idx:02d}'
+    for region, limit in (('国内',MAX_ITEMS_EACH),('海外',MAX_ITEMS_EACH),('市場',MAX_MARKET_ITEMS)):
+        selected.extend(pick_diverse([i for i in all_items if i['region']==region],limit,used))
+    for idx, item in enumerate(selected,1):
+        item['id']=f'S{idx:02d}'
     return selected, errors
 
 
@@ -113,9 +161,14 @@ RESEARCH_REPORT_SCHEMA = {
             "paid_value": {"type": "string"}, "validation": {"type": "string"},
             "source_ids": {"type": "array", "items": {"type": "string"}}
         }, "required": ["title", "reader", "paid_value", "validation", "source_ids"], "additionalProperties": False}},
+        "market_signals": {"type": "array", "items": {"type": "object", "properties": {
+            "theme": {"type": "string"}, "observation": {"type": "string"},
+            "opportunity": {"type": "string"}, "validation": {"type": "string"},
+            "source_ids": {"type": "array", "items": {"type": "string"}}
+        }, "required": ["theme", "observation", "opportunity", "validation", "source_ids"], "additionalProperties": False}},
         "warnings": {"type": "array", "items": {"type": "string"}}
     },
-    "required": ["summary", "highlights", "comparisons", "product_ideas", "warnings"],
+    "required": ["summary", "highlights", "comparisons", "product_ideas", "market_signals", "warnings"],
     "additionalProperties": False
 }
 
@@ -143,15 +196,18 @@ def analyze_with_ai(items):
     if not items:
         raise ValueError('情報源が0件のため推測によるレポート生成はしません。')
     slim = [{k:i[k] for k in ('id','region','source','title','published','excerpt')} for i in items]
-    prompt = ('公開RSSの見出し・短い抜粋だけから日本語で調査報告を作ってください。全文は未読です。'
-              'すべての具体的主張にsource_idsを付け、実際に与えられたIDだけ引用する。'
-              '国内・海外メディア間で同一の出来事が確認できないとき比較を捏造しない。'
-              '政治的立場を推奨せず、媒体の見出しに見える論点の違いを中立に記述する。'
-              'ニュースの真偽や市場の売上は未検証と明記し、センセーショナルな断定を避ける。'
-              '事業案の価格・需要は検証仮説として示し、外部記事の翻訳転載や無断販売を提案しない。'
-              '短いJSONを返すこと。summaryは180文字以内、highlights最大3件、comparisons最大1件、product_ideas最大2件、warnings最大3件。'
-              '各headlineとtitleは40文字以内、その他の説明文は各80文字以内。情報不足なら空配列にする。'
-              '各要素のsource_idsには実在するS番号のみ使用。')
+    prompt = ('ZEROBOARD市場調査AI。入力は公開RSSの見出しと短い抜粋のみであり、全文・売上・note人気ランキングは未確認。'
+              '日本語の短いJSONだけ返す。すべての主張は見出しで観測されたことと推測を区別し実在source_idsを付ける。'
+              'highlights最大3件、comparisons最大1件、market_signals最大2件、product_ideas最大2件、warnings最大3件。'
+              'summaryは150字、各説明文は80字以内。'
+              'comparisonsは同じ出来事を報じる国内・海外の双方の根拠があるときだけ作る。'
+              '単なる日本経済ニュース対英国経済ニュースの比較は禁止。情報不足ならcomparisons=[]。'
+              'market_signalsは「市場」カテゴリの情報や他の出典に観測できる実際の話題と、未検証の機会・低費用テストを区別。'
+              'noteの売れ行き・スキ数・販売件数・価格は入力にないので創作しない。'
+              'product_ideasは仮説と購入価値、無料で検証できる需要検証を記載。'
+              'ニュース翻訳の無断転載は禁止。経済・政治報道の評価は中立に。'
+              'source_idsは与えられたID以外禁止。')
+
     response = OpenAI(api_key=os.environ['OPENAI_API_KEY'], timeout=45, max_retries=1).responses.create(
         model=MODEL, reasoning={'effort': 'low'}, instructions=prompt,
         input=json.dumps(slim, ensure_ascii=False)[:MAX_PROMPT_CHARS],
@@ -160,7 +216,7 @@ def analyze_with_ai(items):
                          "schema": RESEARCH_REPORT_SCHEMA, "strict": True}})
     report = parse_research_response(response)
     valid_ids = {i['id'] for i in items}
-    for field, max_num in (('highlights',5),('comparisons',2),('product_ideas',3)):
+    for field, max_num in (('highlights',3),('comparisons',1),('market_signals',2),('product_ideas',2)):
         value = report.get(field)
         if not isinstance(value,list):
             raise ValueError(f'AI出力に{field}配列がありません。')
@@ -168,6 +224,15 @@ def analyze_with_ai(items):
                          and isinstance(x.get('source_ids'),list)
                          and len(x['source_ids'])>0
                          and all(y in valid_ids for y in x['source_ids'])]
+    # Never show a domestic/overseas contrast when sources are all from one side.
+    regions={i['id']:i['region'] for i in items}
+    report['comparisons']=[c for c in report['comparisons']
+        if {'国内','海外'}.issubset({regions.get(x) for x in c['source_ids']})]
+    report['research_methods']={
+        'scope':'RSS見出し・短い抜粋のみ / 記事全文未読 / note販売数未確認',
+        'selection':'公開情報源別に分散・21日超の既知日付は除外',
+        'coverage':{group:sum(i['region']==group for i in items) for group in ('国内','海外','市場')},
+        'report_version':32}
     report['summary'] = str(report.get('summary') or '')[:900]
     report['warnings'] = [str(w)[:300] for w in (report.get('warnings') or [])[:8]]
     cost, inp, out = estimate_yen(response.usage)
