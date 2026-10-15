@@ -10,7 +10,7 @@ from supabase import create_client
 
 st.set_page_config(page_title='ZEROBOARD AI', page_icon='🧠', layout='wide')
 st.title('🧠 ZEROBOARD AI')
-st.caption('AI経営会議システム / Ver.30 REVENUE ENGINE / NOTE STUDIO')
+st.caption('AI経営会議システム / Ver.31 AUTONOMOUS INTELLIGENCE / REVENUE ENGINE')
 st.write('あなたがCEO。4人のAI役員が議論し、最後に議長AIが経営判断をまとめます。')
 st.divider()
 client = OpenAI(api_key=st.secrets['OPENAI_API_KEY'])
@@ -563,7 +563,65 @@ def run_work_team(idea,work_type,instruction,feedback='',auto_quality=False):
 history=load_meeting_history()
 dashboard_items=[x for x in history if x.get('decision') or x.get('next_action')]
 active_items=sorted([x for x in dashboard_items if x.get('status') in ('未着手','進行中')],key=sort_key)
-tab_office,tab_business,tab_note,tab_work,tab_dashboard,tab_meeting,tab_memory=st.tabs(['🏢 AI OFFICE','💼 BUSINESS LAB','📝 NOTE STUDIO','🛠️ AI WORKSHOP','📊 CEO DASHBOARD','🧠 経営会議','📚 MEMORY'])
+tab_office,tab_business,tab_research,tab_note,tab_work,tab_dashboard,tab_meeting,tab_memory=st.tabs(['🏢 AI OFFICE','💼 BUSINESS LAB','🌐 DAILY INTELLIGENCE','📝 NOTE STUDIO','🛠️ AI WORKSHOP','📊 CEO DASHBOARD','🧠 経営会議','📚 MEMORY'])
+
+# Ver.31: Display only; unattended collection runs in GitHub Actions, not Streamlit.
+def daily_research_rows(limit=14):
+    if business_db is None:
+        return [], 'Supabaseサービスロールキー未設定です。'
+    try:
+        data=(business_db.table('research_daily_reports')
+              .select('id,report_date,created_at,source_items,report,feed_errors,estimated_cost_yen,input_tokens,output_tokens')
+              .order('report_date',desc=True).limit(limit).execute().data or [])
+        return data, None
+    except Exception as exc:
+        return [], str(exc)
+
+with tab_research:
+    st.header('🌐 DAILY INTELLIGENCE / Ver.31')
+    st.caption('AI社員による日次調査報告。収集処理はGitHub Actionsで1日1回実行し、結果をSupabaseから表示します。')
+    st.info('ニュース全文は取得・翻訳・転載しません。公開RSSの見出し・短い抜粋に基づく分析です。記事の販売数・市場需要は未確認。noteへの自動公開や支出は行いません。')
+    data,error=daily_research_rows()
+    if error:
+        st.warning('調査データが取得できません。Ver.31のSQL、GitHub Actions Secrets、サービスロールの設定を確認してな。')
+        st.caption(error)
+    elif not data:
+        st.info('調査レポートはまだありません。READMEに沿ってSQLとGitHub Actionsを設定すると、初回実行後にここへ表示されます。')
+    else:
+        newest=data[0]
+        c1,c2,c3=st.columns(3)
+        c1.metric('📅 最新レポート日',str(newest.get('report_date') or '-'))
+        c2.metric('📰 参照したニュース見出し',len(newest.get('source_items') or []))
+        c3.metric('💰 保存済み概算API費用（直近表示分）',f"{sum(float(x.get('estimated_cost_yen') or 0) for x in data):.2f} 円")
+        st.caption('上記費用はAPI応答のトークン数から換算した概算です。月間総額やOpenAI請求額とは一致しません。')
+        for day in data:
+            with st.expander(f"📋 {day.get('report_date')}｜見出し{len(day.get('source_items') or [])}件",expanded=day['id']==newest['id']):
+                r=day.get('report') or {}
+                st.markdown('### 👑 CEO向け日次報告')
+                st.write(r.get('summary') or '要約なし')
+                st.caption(f"API推定費用：{float(day.get('estimated_cost_yen') or 0):.2f}円 / 入力{day.get('input_tokens') or 0}・出力{day.get('output_tokens') or 0} tokens")
+                source_map={str(x.get('id')):x for x in day.get('source_items') or []}
+                for key,label in [('highlights','📰 注目テーマ'),('comparisons','⚖️ 日本と海外の論点比較'),('product_ideas','💡 note商品企画候補')]:
+                    st.markdown('### '+label)
+                    entries=r.get(key) or []
+                    if not entries:
+                        st.caption('確認できた比較・企画情報なし')
+                    for i,item in enumerate(entries,1):
+                        if not isinstance(item,dict):continue
+                        st.markdown(f"**{i}. {item.get('headline') or item.get('theme') or item.get('title') or '無題'}**")
+                        for field,title in [('detail','要点'),('japan_view','日本で観測された論点'),('global_view','海外で観測された論点'),('caveat','制約'),('reader','想定読者'),('paid_value','有料部分の付加価値'),('validation','低費用の需要検証')]:
+                            if item.get(field):st.write(f'**{title}：** {item[field]}')
+                        for sid in item.get('source_ids') or []:
+                            src=source_map.get(str(sid))
+                            if src:st.markdown(f"出典 {sid}：[{src.get('title') or '記事の見出し'}]({src.get('url')})（{src.get('source')} / {src.get('published') or '日付未確認'}）")
+                with st.expander('🔗 収集した公開RSSの情報源と取得エラー'):
+                    for src in day.get('source_items') or []:
+                        st.markdown(f"{src.get('id')}｜{src.get('region')}｜[{src.get('title')}]({src.get('url')})｜{src.get('source')}")
+                    for e in day.get('feed_errors') or []:st.warning(str(e))
+                for warning in r.get('warnings') or []:st.warning(str(warning))
+                st.download_button('📥 調査結果JSON',data=json.dumps(day,ensure_ascii=False,indent=2,default=str),
+                    file_name=f"zeroboard_research_{day.get('report_date')}.json",mime='application/json',key=f"research_dl_{day['id']}")
+    st.caption('🛡️ AI生成の仮説であり、外部記事の全文確認・ファクトチェック・商用転載許諾・実売上の確認は含みません。公開前にCEOが一次情報を確認してください。')
 
 with tab_office:
     st.header('🎮 ZEROBOARD AI / Ver.23 — LIVING OFFICE')
