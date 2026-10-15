@@ -1,0 +1,25 @@
+import unittest
+import sys
+from pathlib import Path
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
+import research_agent as a
+
+
+class TestResearch(unittest.TestCase):
+    def test_rss_parser(self):
+        xml=b'<rss><channel><item><title>Test &amp; News</title><link>https://example.org/a</link><description><![CDATA[<b>Good</b> info]]></description></item></channel></rss>'
+        items=a.rss_items(xml,'海外','sample')
+        self.assertEqual(items[0]['title'],'Test & News')
+        self.assertEqual(items[0]['excerpt'],'Good info')
+    def test_reject_bad_url(self):
+        xml=b'<rss><channel><item><title>X</title><link>javascript:alert(1)</link></item></channel></rss>'
+        self.assertEqual(a.rss_items(xml,'国内','sample'),[])
+    def test_clean_text(self):
+        self.assertEqual(a.clean_text('<p>A &amp; B</p>'),'A & B')
+    def test_price_ceiling(self):
+        self.assertLessEqual(a.reserved_cost_yen(),a.BUDGET_YEN)
+    def test_dry_run(self):
+        self.assertEqual(a.run(dry_run=True),0)
+
+if __name__=='__main__':
+    unittest.main()
