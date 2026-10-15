@@ -26,7 +26,7 @@ MAX_ESTIMATED_RUN_YEN = 25.0
 USDJPY = float(os.getenv('RESEARCH_USDJPY_ESTIMATE', '160'))
 INPUT_USD_PER_M = float(os.getenv('RESEARCH_INPUT_USD_PER_M', '1.00'))
 OUTPUT_USD_PER_M = float(os.getenv('RESEARCH_OUTPUT_USD_PER_M', '8.00'))
-MAX_OUTPUT_TOKENS = 3200
+MAX_OUTPUT_TOKENS = 6000
 FEEDS = [
  ('国内', 'Google News 日本 経済', 'https://news.google.com/rss/search?q='+urllib.parse.quote('日本 経済 金利 物価')+'&hl=ja&gl=JP&ceid=JP:ja'),
  ('国内', 'Google News 日本 政策 AI', 'https://news.google.com/rss/search?q='+urllib.parse.quote('日本 政策 AI 政治')+'&hl=ja&gl=JP&ceid=JP:ja'),
@@ -149,10 +149,11 @@ def analyze_with_ai(items):
               '政治的立場を推奨せず、媒体の見出しに見える論点の違いを中立に記述する。'
               'ニュースの真偽や市場の売上は未検証と明記し、センセーショナルな断定を避ける。'
               '事業案の価格・需要は検証仮説として示し、外部記事の翻訳転載や無断販売を提案しない。'
-              '簡潔に書くこと。highlights最大5件、comparisons最大2件、product_ideas最大3件。'
+              '短いJSONを返すこと。summaryは180文字以内、highlights最大3件、comparisons最大1件、product_ideas最大2件、warnings最大3件。'
+              '各headlineとtitleは40文字以内、その他の説明文は各80文字以内。情報不足なら空配列にする。'
               '各要素のsource_idsには実在するS番号のみ使用。')
     response = OpenAI(api_key=os.environ['OPENAI_API_KEY'], timeout=45, max_retries=1).responses.create(
-        model=MODEL, instructions=prompt,
+        model=MODEL, reasoning={'effort': 'low'}, instructions=prompt,
         input=json.dumps(slim, ensure_ascii=False)[:MAX_PROMPT_CHARS],
         max_output_tokens=MAX_OUTPUT_TOKENS,
         text={"format": {"type": "json_schema", "name": "daily_research_report",
