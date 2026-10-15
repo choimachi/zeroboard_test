@@ -26,7 +26,7 @@ MAX_ESTIMATED_RUN_YEN = 25.0
 USDJPY = float(os.getenv('RESEARCH_USDJPY_ESTIMATE', '160'))
 INPUT_USD_PER_M = float(os.getenv('RESEARCH_INPUT_USD_PER_M', '1.00'))
 OUTPUT_USD_PER_M = float(os.getenv('RESEARCH_OUTPUT_USD_PER_M', '8.00'))
-MAX_OUTPUT_TOKENS = 1700
+MAX_OUTPUT_TOKENS = 3200
 FEEDS = [
  ('国内', 'Google News 日本 経済', 'https://news.google.com/rss/search?q='+urllib.parse.quote('日本 経済 金利 物価')+'&hl=ja&gl=JP&ceid=JP:ja'),
  ('国内', 'Google News 日本 政策 AI', 'https://news.google.com/rss/search?q='+urllib.parse.quote('日本 政策 AI 政治')+'&hl=ja&gl=JP&ceid=JP:ja'),
@@ -93,6 +93,51 @@ def estimate_yen(usage):
     return round((input_tokens*INPUT_USD_PER_M + output_tokens*OUTPUT_USD_PER_M)/1_000_000*USDJPY, 4), input_tokens, output_tokens
 
 
+# Strict structured output prevents malformed/truncated free-form JSON from being
+# silently treated as a valid report. This is not a factual verification system.
+RESEARCH_REPORT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "summary": {"type": "string"},
+        "highlights": {"type": "array", "items": {"type": "object", "properties": {
+            "headline": {"type": "string"}, "detail": {"type": "string"},
+            "source_ids": {"type": "array", "items": {"type": "string"}}
+        }, "required": ["headline", "detail", "source_ids"], "additionalProperties": False}},
+        "comparisons": {"type": "array", "items": {"type": "object", "properties": {
+            "theme": {"type": "string"}, "japan_view": {"type": "string"},
+            "global_view": {"type": "string"}, "caveat": {"type": "string"},
+            "source_ids": {"type": "array", "items": {"type": "string"}}
+        }, "required": ["theme", "japan_view", "global_view", "caveat", "source_ids"], "additionalProperties": False}},
+        "product_ideas": {"type": "array", "items": {"type": "object", "properties": {
+            "title": {"type": "string"}, "reader": {"type": "string"},
+            "paid_value": {"type": "string"}, "validation": {"type": "string"},
+            "source_ids": {"type": "array", "items": {"type": "string"}}
+        }, "required": ["title", "reader", "paid_value", "validation", "source_ids"], "additionalProperties": False}},
+        "warnings": {"type": "array", "items": {"type": "string"}}
+    },
+    "required": ["summary", "highlights", "comparisons", "product_ideas", "warnings"],
+    "additionalProperties": False
+}
+
+
+def parse_research_response(response):
+    """Parse a complete structured response; never accept truncated JSON."""
+    status = getattr(response, 'status', None)
+    if status and status != 'completed':
+        details = getattr(response, 'incomplete_details', None)
+        raise ValueError(f'AI出力が未完了（{status}、理由: {details}）。JSONを保存しません。')
+    raw = (getattr(response, 'output_text', '') or '').strip()
+    if not raw:
+        raise ValueError('AIが空の回答を返しました。データは保存しません。')
+    try:
+        report = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f'AI出力が不完全なJSONです（{exc.msg}）。データは保存しません。') from exc
+    if not isinstance(report, dict):
+        raise ValueError('AI出力がJSONオブジェクトではありません。')
+    return report
+
+
 def analyze_with_ai(items):
     from openai import OpenAI
     if not items:
@@ -104,21 +149,15 @@ def analyze_with_ai(items):
               '政治的立場を推奨せず、媒体の見出しに見える論点の違いを中立に記述する。'
               'ニュースの真偽や市場の売上は未検証と明記し、センセーショナルな断定を避ける。'
               '事業案の価格・需要は検証仮説として示し、外部記事の翻訳転載や無断販売を提案しない。'
-              '厳格なJSONオブジェクトだけ返す。スキーマ：'
-              '{"summary":"200文字以内","highlights":[{"headline":"短い見出し","detail":"事実/未確認の区別","source_ids":["S01"]}],'
-              '"comparisons":[{"theme":"比較テーマ","japan_view":"日本の媒体で観測した論点か比較不可",'
-              '"global_view":"海外の媒体で観測した論点か比較不可","caveat":"根拠の限界","source_ids":["S01","S02"]}],'
-              '"product_ideas":[{"title":"独自解説記事案","reader":"想定読者","paid_value":"有料部分の具体的付加価値",'
-              '"validation":"低費用の需要検証方法","source_ids":["S01"]}],"warnings":["制約"]}。'
-              'highlights最大5、comparisons最大2、product_ideas最大3。')
+              '簡潔に書くこと。highlights最大5件、comparisons最大2件、product_ideas最大3件。'
+              '各要素のsource_idsには実在するS番号のみ使用。')
     response = OpenAI(api_key=os.environ['OPENAI_API_KEY'], timeout=45, max_retries=1).responses.create(
         model=MODEL, instructions=prompt,
         input=json.dumps(slim, ensure_ascii=False)[:MAX_PROMPT_CHARS],
-        max_output_tokens=MAX_OUTPUT_TOKENS)
-    raw = response.output_text.strip().removeprefix('```json').removeprefix('```').removesuffix('```').strip()
-    report = json.loads(raw)
-    if not isinstance(report, dict):
-        raise ValueError('AI出力がJSONオブジェクトではありません。')
+        max_output_tokens=MAX_OUTPUT_TOKENS,
+        text={"format": {"type": "json_schema", "name": "daily_research_report",
+                         "schema": RESEARCH_REPORT_SCHEMA, "strict": True}})
+    report = parse_research_response(response)
     valid_ids = {i['id'] for i in items}
     for field, max_num in (('highlights',5),('comparisons',2),('product_ideas',3)):
         value = report.get(field)
