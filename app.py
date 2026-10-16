@@ -2,7 +2,9 @@ import json
 import base64
 import html
 import difflib
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
+import product_validation as product_gate
 import streamlit as st
 import streamlit.components.v1 as components
 from openai import OpenAI
@@ -10,12 +12,12 @@ from supabase import create_client
 
 st.set_page_config(page_title='ZEROBOARD AI', page_icon='🧠', layout='wide')
 st.title('🧠 ZEROBOARD AI')
-st.caption('AI経営会議システム / Ver.32 MARKET INTELLIGENCE 2.0 / REVENUE ENGINE')
+st.caption('AI経営会議システム / Ver.33 EVIDENCE-BASED PRODUCT GATE / REVENUE ENGINE')
 st.write('あなたがCEO。4人のAI役員が議論し、最後に議長AIが経営判断をまとめます。')
 st.divider()
 client = OpenAI(api_key=st.secrets['OPENAI_API_KEY'])
 supabase = create_client(st.secrets['SUPABASE_URL'], st.secrets['SUPABASE_KEY'])
-for key, default in [('meeting_result',None),('last_topic',''),('used_memories',[]),('ceo_briefing',None),('topic_suggestions',None),('ceo_topic_input',''),('business_draft',None),('business_eval',{}),('business_notice',None)]:
+for key, default in [('meeting_result',None),('last_topic',''),('used_memories',[]),('ceo_briefing',None),('topic_suggestions',None),('ceo_topic_input',''),('business_draft',None),('business_eval',{}),('business_notice',None),('product_validation_notice',None)]:
     if key not in st.session_state: st.session_state[key]=default
 FIELDS='id, created_at, topic, final, decision, goal, deadline, next_action, result, status, priority, due_date'
 STATUSES=['未着手','進行中','完了','中止']
@@ -577,8 +579,60 @@ def daily_research_rows(limit=14):
     except Exception as exc:
         return [], str(exc)
 
+# Ver.33: CEO-triggered independent evidence check; these are not verified sales.
+def product_validation_rows(limit=20):
+    if business_db is None: return [], 'Supabase service-role connection unavailable'
+    try:
+        rows=(business_db.table('product_validations').select('*')
+              .order('created_at',desc=True).limit(limit).execute().data or [])
+        return rows,None
+    except Exception as exc:return [],str(exc)
+
+
+def run_product_validation(day, index, candidate):
+    if business_db is None: raise ValueError('Supabase接続がありません。')
+    report_id=day['id'];today=datetime.now(ZoneInfo('Asia/Tokyo')).date().isoformat()
+    key=f'{report_id}:{index}'
+    # Do not repeat paid research for the same candidate/date.
+    prior=(business_db.table('product_validations').select('id')
+           .eq('candidate_key',key).eq('research_date',today).limit(1).execute().data or [])
+    if prior:raise ValueError('この候補は本日すでに追加調査済みやで。保存済みレポートを確認してな。')
+    todays=(business_db.table('product_validations').select('id,estimated_cost_yen')
+            .eq('research_date',today).execute().data or [])
+    if len(todays)>=product_gate.MAX_CANDIDATES_PER_DAY:
+        raise ValueError('費用制御：追加調査は1日最大2候補まで。')
+    start=today[:7]+'-01'
+    research=(business_db.table('research_daily_reports').select('estimated_cost_yen')
+              .gte('report_date',start).execute().data or [])
+    validations=(business_db.table('product_validations').select('estimated_cost_yen')
+                 .gte('research_date',start).execute().data or [])
+    spent=sum(float(r.get('estimated_cost_yen') or 0) for r in research+validations)
+    if spent+25>500:
+        raise ValueError('月額500円の概算予算目標に近いため追加調査を停止したで。')
+    evidence,errors,retrieved_at=product_gate.search_public_metadata(candidate.get('title'),candidate.get('reader'))
+    # Evidence-free outcomes are explicitly labeled as unverified, not sent for LLM fabrication.
+    if evidence:
+        evaluation,cost,inp,out=product_gate.evaluate_candidate(candidate,evidence)
+    else:
+        evaluation={'customer_pain':'未確認','news_attention':'未確認','purchase_demand':'根拠なし・未確認',
+                    'competitors':[],'production_tasks':['競合候補の公開ページをCEOが確認'],
+                    'unknowns':['競合商品・公開価格・購入/レビュー・制作工数の根拠が未取得'],
+                    'low_cost_validation':['公開サイトで商品名・価格・レビュー情報を手動確認'],
+                    'recommendation':'追加調査','rationale':'公開検索結果を取得できていないため採否判断を保留',
+                    'supporting_evidence_ids':[]}
+        cost,inp,out=0,0,0
+    record={'daily_report_id':report_id,'candidate_key':key,'candidate_title':str(candidate.get('title') or '')[:300],
+            'candidate_reader':str(candidate.get('reader') or '')[:500],
+            'research_date':today,'retrieved_at':retrieved_at,'evidence':evidence,'search_errors':errors,
+            'evaluation':evaluation,'estimated_cost_yen':cost,'input_tokens':inp,'output_tokens':out,
+            'status':'CEO確認待ち'}
+    stored=(business_db.table('product_validations').insert(record).select('id').execute().data or [])
+    if not stored:raise ValueError('評価結果の保存が確認できません。')
+    return stored[0]['id']
+
+
 with tab_research:
-    st.header('🌐 DAILY INTELLIGENCE / Ver.32 — MARKET INTELLIGENCE 2.0')
+    st.header('🌐 DAILY INTELLIGENCE / Ver.33 — EVIDENCE-BASED PRODUCT GATE')
     st.caption('AI社員による日次調査報告。収集処理はGitHub Actionsで1日1回実行し、結果をSupabaseから表示します。')
     st.info('公開RSSの見出し・抜粋から経済・海外ニュースと商品機会を調べます。記事本文・note販売数・価格・人気順位は取得しません。価格と需要は仮説で、公開や支出はCEO承認制です。')
     data,error=daily_research_rows()
@@ -613,7 +667,20 @@ with tab_research:
                             if item.get(field):st.write(f'**{title}：** {item[field]}')
                         for sid in item.get('source_ids') or []:
                             src=source_map.get(str(sid))
-                            if src:st.markdown(f"出典 {sid}：[{src.get('title') or '記事の見出し'}]({src.get('url')})（{src.get('source')} / {src.get('published') or '日付未確認'}）")
+                            if src:st.markdown(f"出典 {sid}：[{src.get('title') or '記事の見出し'}]({src.get('url')})（{src.get('source')} / 公開日：{src.get('published_date') or src.get('published') or '未確認'} / 取得日：{src.get('retrieved_at') or day.get('created_at') or '未記録'}）")
+                if r.get('product_ideas'):
+                    st.markdown('#### 🔎 商品候補を独立調査（CEOが押したときのみ）')
+                    st.caption('公開検索RSSのメタデータで競合・価格・購入/レビューの根拠を確認。1日2候補まで。検索サイトに掲載がなければ「未確認」と報告します。調査時にAPI費用が発生する場合があります。')
+                    for idx,candidate in enumerate(r.get('product_ideas') or []):
+                        if not isinstance(candidate,dict):continue
+                        if st.button(f"🔍 候補{idx+1}を追加調査：{candidate.get('title') or '無題'}",
+                                     key=f'product_validate_{day["id"]}_{idx}',disabled=business_db is None):
+                            try:
+                                with st.spinner('公開競合情報を探し、需要の根拠と未確認事項を整理中...'):
+                                    validation_id=run_product_validation(day,idx,candidate)
+                                st.success(f'商品検証レポート #{validation_id} を保存しました。下の一覧で確認できます。')
+                                st.rerun()
+                            except Exception as exc:st.error('追加調査を停止：'+str(exc))
                 method=r.get('research_methods') or {}
                 if method:
                     st.caption('🧪 調査範囲：'+str(method.get('scope') or 'RSSの公開情報'))
@@ -628,6 +695,41 @@ with tab_research:
                 for warning in r.get('warnings') or []:st.warning(str(warning))
                 st.download_button('📥 調査結果JSON',data=json.dumps(day,ensure_ascii=False,indent=2,default=str),
                     file_name=f"zeroboard_research_{day.get('report_date')}.json",mime='application/json',key=f"research_dl_{day['id']}")
+    st.divider()
+    st.subheader('📚 商品候補の追加調査レポート → AI経営会議')
+    verified,validation_error=product_validation_rows()
+    if validation_error:
+        st.warning('商品検証テーブルがありません。ZIP内の setup_product_validations.sql をSupabaseで実行してください。')
+        st.caption(validation_error)
+    elif not verified:st.info('追加調査はまだありません。上の商品候補の「追加調査」ボタンから始めてな。')
+    else:
+        for row in verified:
+            v=row.get('evaluation') or {}
+            with st.expander(f"{row.get('research_date')}｜{row.get('candidate_title')}｜{v.get('recommendation','未判定')}｜#{row.get('id')}"):
+                st.write('**顧客の悩み：**',v.get('customer_pain') or '未確認')
+                st.write('**ニュースの話題性：**',v.get('news_attention') or '未確認')
+                st.write('**購入需要の根拠：**',v.get('purchase_demand') or '未確認')
+                st.warning('話題性・閲覧・販売価格は購入を証明しません。購入実績とレビューは確認できた場合のみ証拠として扱います。')
+                st.markdown('**🏪 競合商品・公開価格・レビュー**')
+                competitors=v.get('competitors') or []
+                if competitors:
+                    for c in competitors:
+                        st.write(f"・{c.get('name')}｜価格：{c.get('public_price') or '未確認'}｜購入・レビュー：{c.get('purchase_or_review') or '未確認'}｜根拠ID：{', '.join(c.get('evidence_ids') or [])}")
+                else:st.caption('確認できた競合なし。存在しないという意味ではありません。')
+                for key,label in [('production_tasks','🛠️ 制作に必要な作業'),('low_cost_validation','🧪 低費用での需要検証'),('unknowns','⚠️ 未確認事項')]:
+                    st.markdown('**'+label+'**')
+                    for item in v.get(key) or []:st.write('・'+str(item))
+                st.write('**調査AIの推奨：**',v.get('recommendation') or '追加調査')
+                st.write('**理由：**',v.get('rationale') or '')
+                st.caption(f"追加調査日時：{row.get('retrieved_at')}｜API概算：{float(row.get('estimated_cost_yen') or 0):.2f}円")
+                with st.expander('🔗 根拠リンク・記事公開日・取得日（検索結果のみ）'):
+                    for e in row.get('evidence') or []:
+                        st.markdown(f"{e.get('id')}｜[{e.get('title')}]({e.get('url')})｜公開日：{e.get('published_date') or '未確認'}｜取得：{e.get('retrieved_at') or '未記録'}")
+                        if e.get('excerpt'):st.caption(e['excerpt'])
+                    for err in row.get('search_errors') or []:st.warning(str(err))
+                if st.button('🧠 この根拠付き商品候補を経営会議の議題にセット',key=f"send_validation_{row['id']}"):
+                    st.session_state.ceo_topic_input=product_gate.meeting_brief(row)
+                    st.success('議題をセットしたで。「🧠 経営会議」タブで内容を確認し、CEOが開始を押してな。自動で会議・採用・公開はしません。')
     st.caption('🛡️ Ver.32は見出しベースの仮説調査です。noteランキング・売上、本文照合、実需、著作物の利用許諾は検証していません。公開前にCEOが確認してください。')
 
 with tab_office:
