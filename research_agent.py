@@ -1,4 +1,4 @@
-"""ZEROBOARD Ver.32 daily evidence-first research agent.
+"""ZEROBOARD Ver.33 daily evidence-first research agent.
 
 Runs in GitHub Actions independently of Streamlit. Public RSS metadata only;
 never downloads or republishes full copyrighted news articles.
@@ -48,6 +48,15 @@ def clean_text(value):
     return re.sub(r'\s+', ' ', re.sub(r'<[^>]*>', ' ', unescape(value or ''))).strip()[:380]
 
 
+def normalized_published_date(value):
+    try:
+        parsed=email.utils.parsedate_to_datetime(value)
+        if parsed.tzinfo: return parsed.astimezone(JST).date().isoformat()
+    except (ValueError, TypeError, OverflowError):
+        pass
+    return None
+
+
 def rss_items(xml_data, region, feed_name):
     root = ET.fromstring(xml_data)
     items = []
@@ -58,6 +67,8 @@ def rss_items(xml_data, region, feed_name):
             continue
         items.append({'region': region, 'source': feed_name, 'title': title,
                       'url': link[:1800], 'published': clean_text(item.findtext('pubDate')),
+                      'published_date': normalized_published_date(item.findtext('pubDate')),
+                      'retrieved_at': dt.datetime.now(JST).isoformat(timespec='seconds'),
                       'excerpt': clean_text(item.findtext('description'))})
     return items
 
@@ -230,9 +241,9 @@ def analyze_with_ai(items):
         if {'国内','海外'}.issubset({regions.get(x) for x in c['source_ids']})]
     report['research_methods']={
         'scope':'RSS見出し・短い抜粋のみ / 記事全文未読 / note販売数未確認',
-        'selection':'公開情報源別に分散・21日超の既知日付は除外',
+        'selection':'公開情報源別に分散・21日超の既知日付は除外。記事公開日と取得日時は別記録',
         'coverage':{group:sum(i['region']==group for i in items) for group in ('国内','海外','市場')},
-        'report_version':32}
+        'report_version':33}
     report['summary'] = str(report.get('summary') or '')[:900]
     report['warnings'] = [str(w)[:300] for w in (report.get('warnings') or [])[:8]]
     cost, inp, out = estimate_yen(response.usage)
