@@ -38,7 +38,7 @@ FEEDS = [
  ('海外', 'World Economy', 'https://news.google.com/rss/search?q='+urllib.parse.quote('world economy trade central bank')+'&hl=en-US&gl=US&ceid=US:en'),
  ('海外', 'World Technology', 'https://news.google.com/rss/search?q='+urllib.parse.quote('AI regulation investment technology')+'&hl=en-US&gl=US&ceid=US:en'),
  # These feeds show public *signals* and discussions, NOT note sales data.
- ('市場', 'デジタル商品・note', 'https://news.google.com/rss/search?q='+urllib.parse.quote('note 有料記事 デジタル商品 コンテンツ 販売')+'&hl=ja&gl=JP&ceid=JP:ja'),
+ ('市場', 'デジタル商品・note', 'https://news.google.com/rss/search?q='+urllib.parse.quote('note 有料記事 テンプレート 初心者 販売')+'&hl=ja&gl=JP&ceid=JP:ja'),
  ('市場', '小規模事業・副業', 'https://news.google.com/rss/search?q='+urllib.parse.quote('副業 AI 活用 小規模事業')+'&hl=ja&gl=JP&ceid=JP:ja'),
 ]
 
@@ -215,7 +215,7 @@ def analyze_with_ai(items):
               '単なる日本経済ニュース対英国経済ニュースの比較は禁止。情報不足ならcomparisons=[]。'
               'market_signalsは「市場」カテゴリの情報や他の出典に観測できる実際の話題と、未検証の機会・低費用テストを区別。'
               'noteの売れ行き・スキ数・販売件数・価格は入力にないので創作しない。'
-              'product_ideasは仮説と購入価値、無料で検証できる需要検証を記載。'
+              'product_ideasはnoteの有料記事・テンプレートを優先し、無料/有料の具体的な価値と無料で検証できる方法を提案。単なるニュース要約商品は避ける。'
               'ニュース翻訳の無断転載は禁止。経済・政治報道の評価は中立に。'
               'source_idsは与えられたID以外禁止。')
 
@@ -243,7 +243,7 @@ def analyze_with_ai(items):
         'scope':'RSS見出し・短い抜粋のみ / 記事全文未読 / note販売数未確認',
         'selection':'公開情報源別に分散・21日超の既知日付は除外。記事公開日と取得日時は別記録',
         'coverage':{group:sum(i['region']==group for i in items) for group in ('国内','海外','市場')},
-        'report_version':33}
+        'report_version':34}
     report['summary'] = str(report.get('summary') or '')[:900]
     report['warnings'] = [str(w)[:300] for w in (report.get('warnings') or [])[:8]]
     cost, inp, out = estimate_yen(response.usage)
