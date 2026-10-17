@@ -632,7 +632,7 @@ def run_product_validation(day, index, candidate):
 
 
 with tab_research:
-    st.header('🌐 DAILY INTELLIGENCE / Ver.33 — EVIDENCE-BASED PRODUCT GATE')
+    st.header('🌐 DAILY INTELLIGENCE / Ver.34 — NOTE MARKET SCOUT')
     st.caption('AI社員による日次調査報告。収集処理はGitHub Actionsで1日1回実行し、結果をSupabaseから表示します。')
     st.info('公開RSSの見出し・抜粋から経済・海外ニュースと商品機会を調べます。記事本文・note販売数・価格・人気順位は取得しません。価格と需要は仮説で、公開や支出はCEO承認制です。')
     data,error=daily_research_rows()
@@ -730,9 +730,48 @@ with tab_research:
                 if st.button('🧠 この根拠付き商品候補を経営会議の議題にセット',key=f"send_validation_{row['id']}"):
                     st.session_state.ceo_topic_input=product_gate.meeting_brief(row)
                     st.success('議題をセットしたで。「🧠 経営会議」タブで内容を確認し、CEOが開始を押してな。自動で会議・採用・公開はしません。')
-    st.caption('🛡️ Ver.32は見出しベースの仮説調査です。noteランキング・売上、本文照合、実需、著作物の利用許諾は検証していません。公開前にCEOが確認してください。')
+                st.markdown('**📝 noteでの収益化候補（仮説）**')
+                pitch=product_gate.note_pitch(row)
+                st.write('**記事の切り口：**',pitch['title'])
+                st.write('**無料部分：**',pitch['free_value'])
+                st.write('**有料部分：**',pitch['paid_value'])
+                st.caption('競合の公開価格・販売件数・レビューは裏付けがない限り未確認。noteで売れることは保証されません。')
+                if st.button('📝 NOTE STUDIOに企画を渡す（制作はしない）',key=f"note_pitch_{row['id']}"):
+                    st.session_state['note_market_topic']=pitch['title']
+                    st.session_state['note_market_audience']=pitch['reader']
+                    st.session_state['note_market_value']=pitch['paid_value']
+                    st.session_state['note_market_extra']=pitch['instructions']
+                    st.success('NOTE STUDIOに企画をセットしたで。内容を確認してからCEOが制作ボタンを押してな。')
+
+    st.caption('🛡️ 日次調査は見出しベースの仮説調査です。noteランキング・売上、本文照合、実需、著作物の利用許諾は検証していません。公開前にCEOが確認してください。')
 
 with tab_office:
+    st.subheader('📝 NOTE MARKET SCOUT / Ver.34 — CEO商品判断')
+    st.caption('追加調査を済ませた商品候補をオフィスでも確認。需要の根拠は未検証なら未確認として表示します。')
+    office_candidates, office_error=product_validation_rows(limit=8)
+    if office_error:
+        st.caption('商品調査データが未接続です。DAILY INTELLIGENCEの設定を確認してください。')
+    elif not office_candidates:
+        st.info('追加調査済み候補はまだありません。DAILY INTELLIGENCEから候補を検証してください。')
+    else:
+        for candidate_row in office_candidates:
+            info=candidate_row.get('evaluation') or {}
+            with st.expander(f"#{candidate_row.get('id')}｜{candidate_row.get('candidate_title')}｜{info.get('recommendation') or '未判定'}"):
+                st.write('**想定読者：**',candidate_row.get('candidate_reader') or '未確認')
+                st.write('**購入需要の根拠：**',info.get('purchase_demand') or '未確認')
+                st.write('**未確認事項：**',' / '.join(str(x) for x in (info.get('unknowns') or [])[:4]) or '未記録')
+                st.caption('公開検索見出し・抜粋に基づく評価。販売実績の証明ではありません。')
+                if st.button('🧠 根拠要約を経営会議にセット',key=f"office_to_meeting_{candidate_row['id']}"):
+                    st.session_state.ceo_topic_input=product_gate.meeting_brief(candidate_row)
+                    st.success('経営会議の議題欄に反映したで。会議はCEOが開始するまで動かへん。')
+                if st.button('📝 この候補をNOTE STUDIOにセット',key=f"office_to_note_{candidate_row['id']}"):
+                    draft=product_gate.note_pitch(candidate_row)
+                    st.session_state['note_market_topic']=draft['title']
+                    st.session_state['note_market_audience']=draft['reader']
+                    st.session_state['note_market_value']=draft['paid_value']
+                    st.session_state['note_market_extra']=draft['instructions']
+                    st.success('NOTE STUDIOに企画をセットしたで。CEOが制作を承認してな。')
+    st.divider()
     st.header('🎮 ZEROBOARD AI / Ver.23 — LIVING OFFICE')
     st.caption('社員間の距離・進路予約・座席予約を追加。照明と家具の立体感も強化。仕事の動きは視覚演出です。')
     OFFICE_STAFF=[
@@ -1141,11 +1180,11 @@ with tab_note:
     if business_db is None:
         st.error('NOTE STUDIOの保存には既存のSUPABASE_SERVICE_ROLE_KEY設定が必要です。')
     with st.form('note_studio_generate'):
-        note_topic=st.text_input('記事のテーマ・ジャンル（自由入力）',placeholder='例：京都の小規模店舗が低予算で集客を改善する方法')
-        note_audience=st.text_input('想定読者',value='これから始める初心者')
-        note_value=st.text_area('購入者に届けたい具体的な価値',placeholder='例：明日から使える実践手順、テンプレート、失敗例')
+        note_topic=st.text_input('記事のテーマ・ジャンル（自由入力）',placeholder='例：京都の小規模店舗が低予算で集客を改善する方法',key='note_market_topic')
+        note_audience=st.text_input('想定読者',value='これから始める初心者',key='note_market_audience')
+        note_value=st.text_area('購入者に届けたい具体的な価値',placeholder='例：明日から使える実践手順、テンプレート、失敗例',key='note_market_value')
         note_price=st.number_input('検証したい販売価格（円・未確定）',min_value=0,max_value=1000000,value=500,step=100)
-        note_extra=st.text_area('CEOからの追加条件（任意）',placeholder='例：難しい専門用語を避ける、見出しと具体例を多く')
+        note_extra=st.text_area('CEOからの追加条件（任意）',placeholder='例：難しい専門用語を避ける、見出しと具体例を多く',key='note_market_extra')
         note_auto=st.checkbox('🧪 AI品質改善ループを追加実行（最大3回・API料金増）',value=False)
         generate_note=st.form_submit_button('📝 AI社員にnote記事を制作させる',type='primary',disabled=business_db is None)
     if generate_note:
