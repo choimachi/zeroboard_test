@@ -5,6 +5,7 @@ import difflib
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 import product_validation as product_gate
+import profit_gate
 import streamlit as st
 import streamlit.components.v1 as components
 from openai import OpenAI
@@ -12,7 +13,7 @@ from supabase import create_client
 
 st.set_page_config(page_title='ZEROBOARD AI', page_icon='🧠', layout='wide')
 st.title('🧠 ZEROBOARD AI')
-st.caption('AI経営会議システム / Ver.33 EVIDENCE-BASED PRODUCT GATE / REVENUE ENGINE')
+st.caption('AI経営会議システム / Ver.35 PROFIT FIRST / NOTE MARKET GATE')
 st.write('あなたがCEO。4人のAI役員が議論し、最後に議長AIが経営判断をまとめます。')
 st.divider()
 client = OpenAI(api_key=st.secrets['OPENAI_API_KEY'])
@@ -741,12 +742,14 @@ with tab_research:
                     st.session_state['note_market_audience']=pitch['reader']
                     st.session_state['note_market_value']=pitch['paid_value']
                     st.session_state['note_market_extra']=pitch['instructions']
+                    st.session_state['note_origin_validation_id']=row['id']
+                    st.session_state['note_gate_approval']=False
                     st.success('NOTE STUDIOに企画をセットしたで。内容を確認してからCEOが制作ボタンを押してな。')
 
     st.caption('🛡️ 日次調査は見出しベースの仮説調査です。noteランキング・売上、本文照合、実需、著作物の利用許諾は検証していません。公開前にCEOが確認してください。')
 
 with tab_office:
-    st.subheader('📝 NOTE MARKET SCOUT / Ver.34 — CEO商品判断')
+    st.subheader('📝 PROFIT FIRST / Ver.35 — 制作前の根拠審査')
     st.caption('追加調査を済ませた商品候補をオフィスでも確認。需要の根拠は未検証なら未確認として表示します。')
     office_candidates, office_error=product_validation_rows(limit=8)
     if office_error:
@@ -761,6 +764,11 @@ with tab_office:
                 st.write('**購入需要の根拠：**',info.get('purchase_demand') or '未確認')
                 st.write('**未確認事項：**',' / '.join(str(x) for x in (info.get('unknowns') or [])[:4]) or '未記録')
                 st.caption('公開検索見出し・抜粋に基づく評価。販売実績の証明ではありません。')
+                gate=profit_gate.assess(candidate_row)
+                st.warning('🛑 制作前判定：'+gate['decision'])
+                for problem in gate['problems']: st.caption('未確認：'+problem)
+                with st.expander('🔎 無料で確認できる次の手順'):
+                    for step in gate['low_cost_tests'] or ['競合原ページと価格を手動確認','想定読者に購入意思を質問']: st.write('・'+str(step))
                 if st.button('🧠 根拠要約を経営会議にセット',key=f"office_to_meeting_{candidate_row['id']}"):
                     st.session_state.ceo_topic_input=product_gate.meeting_brief(candidate_row)
                     st.success('経営会議の議題欄に反映したで。会議はCEOが開始するまで動かへん。')
@@ -770,6 +778,8 @@ with tab_office:
                     st.session_state['note_market_audience']=draft['reader']
                     st.session_state['note_market_value']=draft['paid_value']
                     st.session_state['note_market_extra']=draft['instructions']
+                    st.session_state['note_origin_validation_id']=candidate_row['id']
+                    st.session_state['note_gate_approval']=False
                     st.success('NOTE STUDIOに企画をセットしたで。CEOが制作を承認してな。')
     st.divider()
     st.header('🎮 ZEROBOARD AI / Ver.23 — LIVING OFFICE')
@@ -1179,6 +1189,27 @@ with tab_note:
     st.info('最初の目標は「公開前に確認できるnote商品を1件作る」こと。売上は未検証で、公開・有料エリア設定はCEOがnote上で行います。')
     if business_db is None:
         st.error('NOTE STUDIOの保存には既存のSUPABASE_SERVICE_ROLE_KEY設定が必要です。')
+    st.markdown('### 🛡️ PROFIT FIRST：記事制作前の審査')
+    origin_id=st.session_state.get('note_origin_validation_id')
+    source_record=None
+    if origin_id and business_db is not None:
+        try:
+            found=(business_db.table('product_validations').select('*').eq('id',origin_id).limit(1).execute().data or [])
+            source_record=found[0] if found else None
+        except Exception as exc:
+            st.warning('元の追加調査を読み込めません。制作は一旦保留してください。')
+    if origin_id:
+        if source_record is None:
+            st.error('元の市場調査データを照合できません。制作ボタンを無効化しています。')
+        else:
+            checklist=profit_gate.assess(source_record)
+            st.warning('市場候補 #'+str(origin_id)+'：'+checklist['decision'])
+            st.caption(checklist['reason'])
+            for issue in checklist['problems']: st.write('⚠️ '+issue)
+            st.info('まず根拠収集・無料検証を推奨。CEOが試作の理由を明示すれば、有料記事の非公開ドラフト制作は可能です。公開・販売は別途承認。')
+    else:
+        st.info('CEOがテーマを自分で指定した記事は制作可能。自分の経験を装う記事は生成しません。')
+    st.caption('市場調査・審査表示はAPIを使いません。記事生成や品質ループはAPI料金が発生します。')
     with st.form('note_studio_generate'):
         note_topic=st.text_input('記事のテーマ・ジャンル（自由入力）',placeholder='例：京都の小規模店舗が低予算で集客を改善する方法',key='note_market_topic')
         note_audience=st.text_input('想定読者',value='これから始める初心者',key='note_market_audience')
@@ -1186,9 +1217,14 @@ with tab_note:
         note_price=st.number_input('検証したい販売価格（円・未確定）',min_value=0,max_value=1000000,value=500,step=100)
         note_extra=st.text_area('CEOからの追加条件（任意）',placeholder='例：難しい専門用語を避ける、見出しと具体例を多く',key='note_market_extra')
         note_auto=st.checkbox('🧪 AI品質改善ループを追加実行（最大3回・API料金増）',value=False)
-        generate_note=st.form_submit_button('📝 AI社員にnote記事を制作させる',type='primary',disabled=business_db is None)
+        note_kind=st.selectbox('商品タイプ', ['実用・手順型','考察・分析型（根拠と複数視点）','CEO指定の学習記事'])
+        note_prototype_reason=st.text_input('市場候補を試作する理由（市場候補の場合は必須）',placeholder='例：読者3名から具体的な困りごとを聞いた')
+        note_gate_confirm=st.checkbox('市場候補の未検証事項とAPI費用を理解し、非公開試作のみを明示的に承認する',value=False)
+        generate_note=st.form_submit_button('📝 CEO承認のうえ非公開記事を試作',type='primary',disabled=(business_db is None or (bool(origin_id) and source_record is None)))
     if generate_note:
-        if not note_topic.strip():
+        if origin_id and (not note_gate_confirm or len(note_prototype_reason.strip())<8):
+            st.warning('市場候補の制作には、CEOの確認チェックと8文字以上の試作理由が必要やで。まだAPIは呼んでへん。')
+        elif not note_topic.strip():
             st.warning('記事のテーマを入力してな。')
         else:
             try:
@@ -1196,7 +1232,11 @@ with tab_note:
                                   f'届けたい価値：{note_value.strip() or "具体的な実践方法"}\n'
                                   f'価格仮説：{note_price}円（妥当性未検証）\n'
                                   f'追加条件：{note_extra.strip()}\n'
-                                  '事実を捏造せず、読者が支払う価値を具体化してください。')
+                                  f'商品タイプ：{note_kind}\n'
+                                  f'制作判断：市場候補={bool(origin_id)} / 試作理由={note_prototype_reason.strip() or "CEO直接指定"}\n'
+                                  '実体験をCEO本人の経験として捏造しない。出典未確認は未確認と書く。'
+                                  '考察・分析型では同一出来事の複数の確かな出典と反対の視点を整理し、事実・推論・未確認を明示。'
+                                  '読むだけでなく得られる気づきや判断軸を示す。出典不足なら制作案を保留と明記する。')
                 placeholder_idea={'title':note_topic.strip(),'summary':note_value.strip(),
                                   'customer':note_audience.strip(),'revenue_model':'note有料記事（未販売）',
                                   'first_step':'CEOが原稿を検証','risks':'需要・著作権・正確性・販売可否は未検証'}
@@ -1204,7 +1244,9 @@ with tab_note:
                     note_reports,note_draft,note_review=run_work_team(placeholder_idea,'note有料記事',note_instruction,auto_quality=note_auto)
                 note_reports['NOTE制作仕様']={'theme':note_topic.strip(),'audience':note_audience.strip(),
                                           'price_hypothesis_yen':int(note_price),'publication':'CEO手動',
-                                          'paid_boundary':'CEOがnote投稿画面で設定','version':30}
+                                          'paid_boundary':'CEOがnote投稿画面で設定','version':35,
+                                          'product_type':note_kind,'market_validation_id':origin_id,
+                                          'prototype_reason':note_prototype_reason.strip()}
                 st.session_state['note_pending_v30']={'idea':placeholder_idea,'reports':note_reports,
                     'draft':note_draft,'review':note_review,'instruction':note_instruction}
                 st.success('原稿を生成しました。内容を確認してから、下の保存ボタンを押してください。')
