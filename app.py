@@ -9,6 +9,7 @@ import profit_gate
 import market_scout
 import evidence_scout
 import active_evidence
+import smart_market_search
 import streamlit as st
 import streamlit.components.v1 as components
 from openai import OpenAI
@@ -16,7 +17,7 @@ from supabase import create_client
 
 st.set_page_config(page_title='ZEROBOARD AI', page_icon='🧠', layout='wide')
 st.title('🧠 ZEROBOARD AI')
-st.caption('AI経営会議システム / Ver.38 ACTIVE EVIDENCE RESEARCH / PROFIT FIRST')
+st.caption('AI経営会議システム / Ver.39 SMART MARKET SEARCH / PROFIT FIRST')
 st.write('あなたがCEO。4人のAI役員が議論し、最後に議長AIが経営判断をまとめます。')
 st.divider()
 client = OpenAI(api_key=st.secrets['OPENAI_API_KEY'])
@@ -794,8 +795,8 @@ with tab_office:
                         st.success('競合・需要の未確認事項を議題にセット。CEOが会議を開始するまではAPI費用なし。')
                     st.caption('有料記事の制作はここから直接実行しません。追加調査→制作前審査→CEO判断の順に進みます。')
     st.divider()
-    st.subheader('🌐 Ver.38 ACTIVE EVIDENCE RESEARCH — note公開商品ページを調べる')
-    st.caption('CEOが選んだ候補だけ、公開検索RSSからnoteの記事ページを最大3件確認。OpenAI API呼び出しなし・自動課金なし。HTTP通信は行います。競合価格や需要を保証しません。')
+    st.subheader('🔎 Ver.39 SMART MARKET SEARCH — 顧客の悩みからnoteを調べる')
+    st.caption('商品名の丸ごと検索をやめ、関連する短いキーワードを最大4通り試します。Bing一般Web RSS＋Google一般Webの公開検索。外部HTTP最大7回・OpenAI APIなし。ブロック時は0件になりえます。')
     if scout_report_error or scout_validation_error or not scout_options:
         st.info('候補がまだ読み込めません。保存済み市場調査が表示できるか確認してください。')
     else:
@@ -804,11 +805,13 @@ with tab_office:
         selected_idea=scout_options[chosen]
         st.write('**想定読者：**', selected_idea.get('reader') or '未確認')
         st.write('**届けたい価値：**', selected_idea.get('paid_value') or '未確認')
-        search_terms=st.text_input('公開note検索キーワード（短く編集可）',value=active_evidence._terms(selected_idea['title']),key=f'active_evidence_query_{chosen}')
-        if st.button('🔎 この候補のnote公開ページを最大3件検索（外部Web通信）',key='active_evidence_run'):
+        suggestions=smart_market_search.build_queries(selected_idea['title'], selected_idea.get('reader',''), selected_idea.get('paid_value',''))
+        st.caption('検索候補（自動）：'+ ' ／ '.join(suggestions))
+        search_terms=st.text_input('最初の検索キーワード（任意で編集）',value=suggestions[0],key=f'active_evidence_query_{chosen}')
+        if st.button('🔎 4パターンで競合noteを探す（外部Web通信）',key='active_evidence_run'):
             with st.spinner('公開検索とnote記事のメタ情報を確認しています…'):
                 try:
-                    st.session_state['active_evidence_result']=active_evidence.research(selected_idea['title'],3,search_terms)
+                    st.session_state['active_evidence_result']=smart_market_search.research(selected_idea['title'], selected_idea.get('reader',''), selected_idea.get('paid_value',''),search_terms)
                     st.session_state['active_evidence_idea']=selected_idea
                 except Exception as exc:
                     st.session_state.pop('active_evidence_result',None)
@@ -820,6 +823,10 @@ with tab_office:
             st.caption('保存済みの調査結果ではありません。現在の画面セッション内にのみ残ります。')
             st.info('🔍 '+active_result['candidate_title']+'｜公開ページ取得 '+str(active_result['checked_pages'])+' 件／価格手がかり '+str(active_result['explicit_price_leads'])+' 件')
             st.write('**調査日時（UTC）：**',active_result['retrieved_at'])
+            st.write('**使用した検索語：**', ' ／ '.join(active_result.get('queries',[])))
+            with st.expander('検索先ごとの取得状況（0件の理由を確認）'):
+                for attempt in active_result.get('search_logs',[]):
+                    st.write(attempt['engine']+' ｜ '+attempt['query']+' ｜ '+attempt['status']+' ｜ 記事候補 '+str(attempt['candidate_count'])+'件')
             for idx,article in enumerate(active_result['articles'],1):
                 with st.expander(f"{idx}. {article.get('title') or '公開記事'}｜{article['status']}"):
                     st.write('**元ページ：**',article['url'])
@@ -837,9 +844,9 @@ with tab_office:
             for error in active_result['errors']:
                 st.caption('取得時の制約：'+str(error))
             st.warning(active_result['conclusion']+' '+active_result['limits'])
-            st.download_button('📥 今回の調査結果をJSONで保存',data=json.dumps(active_result,ensure_ascii=False,indent=2),file_name='zeroboard_active_evidence.json',mime='application/json',key='active_evidence_export')
+            st.download_button('📥 今回の調査結果をJSONで保存',data=json.dumps(active_result,ensure_ascii=False,indent=2),file_name='zeroboard_smart_market_search.json',mime='application/json',key='active_evidence_export')
             if st.button('🧠 今回の確認状況をAI経営会議の議題にセット（会議実行なし）',key='active_evidence_brief'):
-                st.session_state.ceo_topic_input=active_evidence.meeting_brief(active_idea,active_result)
+                st.session_state.ceo_topic_input=smart_market_search.meeting_brief(active_idea,active_result)
                 st.success('経営会議タブへ議題をセットしました。会議を開始するまではOpenAI API料金なし。')
     st.divider()
     st.subheader('📝 PROFIT FIRST / Ver.35 — 制作前の根拠審査')
