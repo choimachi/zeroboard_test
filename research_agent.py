@@ -1,4 +1,4 @@
-"""ZEROBOARD Ver.33 daily evidence-first research agent.
+"""ZEROBOARD Ver.36 daily evidence-first research agent.
 
 Runs in GitHub Actions independently of Streamlit. Public RSS metadata only;
 never downloads or republishes full copyrighted news articles.
@@ -202,11 +202,12 @@ def parse_research_response(response):
     return report
 
 
-def analyze_with_ai(items):
+def analyze_with_ai(items, previous_titles=None):
     from openai import OpenAI
     if not items:
         raise ValueError('情報源が0件のため推測によるレポート生成はしません。')
     slim = [{k:i[k] for k in ('id','region','source','title','published','excerpt')} for i in items]
+    previous_titles = [str(t)[:130] for t in (previous_titles or []) if t][:12]
     prompt = ('ZEROBOARD市場調査AI。入力は公開RSSの見出しと短い抜粋のみであり、全文・売上・note人気ランキングは未確認。'
               '日本語の短いJSONだけ返す。すべての主張は見出しで観測されたことと推測を区別し実在source_idsを付ける。'
               'highlights最大3件、comparisons最大1件、market_signals最大2件、product_ideas最大2件、warnings最大3件。'
@@ -217,12 +218,16 @@ def analyze_with_ai(items):
               'noteの売れ行き・スキ数・販売件数・価格は入力にないので創作しない。'
               'product_ideasは広く売れる可能性のある商品（note考察・分析記事を含む）を優先し、無料/有料の具体的価値と無料の検証方法を提案。'
               '単なるニュース要約・専門家向け架空レポート・実体験の捏造・高額制作前提は禁止。購入需要が弱いテーマは企画にしない。'
+              '過去に提案済み・購買根拠不足のテーマを言い換えただけで再提案しない。'
+              '別の読者層と別の困りごとを持つ代替案を探す。'
+              '毎回、実用・手順型と考察・分析型を比較する。無理に2案出さず、根拠が不足なら0案でよい。'
+              '記事制作を自動開始してはならない。'
               'ニュース翻訳の無断転載は禁止。経済・政治報道の評価は中立に。'
               'source_idsは与えられたID以外禁止。')
 
     response = OpenAI(api_key=os.environ['OPENAI_API_KEY'], timeout=45, max_retries=1).responses.create(
         model=MODEL, reasoning={'effort': 'low'}, instructions=prompt,
-        input=json.dumps(slim, ensure_ascii=False)[:MAX_PROMPT_CHARS],
+        input=json.dumps({'rss_items':slim,'past_ideas_to_avoid':previous_titles}, ensure_ascii=False)[:MAX_PROMPT_CHARS],
         max_output_tokens=MAX_OUTPUT_TOKENS,
         text={"format": {"type": "json_schema", "name": "daily_research_report",
                          "schema": RESEARCH_REPORT_SCHEMA, "strict": True}})
@@ -244,7 +249,7 @@ def analyze_with_ai(items):
         'scope':'RSS見出し・短い抜粋のみ / 記事全文未読 / note販売数未確認',
         'selection':'公開情報源別に分散・21日超の既知日付は除外。記事公開日と取得日時は別記録',
         'coverage':{group:sum(i['region']==group for i in items) for group in ('国内','海外','市場')},
-        'report_version':35}
+        'report_version':36, 'avoided_recent_ideas': len(previous_titles)}
     report['summary'] = str(report.get('summary') or '')[:900]
     report['warnings'] = [str(w)[:300] for w in (report.get('warnings') or [])[:8]]
     cost, inp, out = estimate_yen(response.usage)
@@ -281,7 +286,15 @@ def run(dry_run=False):
     if not items:
         print('RSS取得失敗：分析せず終了 '+repr(errors),file=sys.stderr)
         return 1
-    report, cost, input_tokens, output_tokens = analyze_with_ai(items)
+    # Previously proposed themes: reuse saved DB text to avoid repeated weak products.
+    # Do not issue another API request to rank products.
+    history = db.table('research_daily_reports').select('report').order('report_date',desc=True).limit(10).execute().data or []
+    previous_titles=[]
+    for row in history:
+        for idea in (row.get('report') or {}).get('product_ideas') or []:
+            if isinstance(idea,dict) and idea.get('title'):
+                previous_titles.append(str(idea['title']))
+    report, cost, input_tokens, output_tokens = analyze_with_ai(items, previous_titles=previous_titles)
     payload = {'report_date':today,'source_items':items,'report':report,'feed_errors':errors,
                'model':MODEL,'estimated_cost_yen':cost,'input_tokens':input_tokens,'output_tokens':output_tokens}
     # Unique report_date additionally protects against duplicate saves.
