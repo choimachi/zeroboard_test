@@ -6,6 +6,7 @@ note.com landing-page metadata is fetched and reviewed by the CEO.
 from __future__ import annotations
 
 import html
+import base64
 import re
 import urllib.parse
 import xml.etree.ElementTree as ET
@@ -56,35 +57,73 @@ def build_queries(title: str, reader: str = "", paid_value: str = "", custom: st
     return normalized[:MAX_SEARCHES]
 
 
-def _canonical_note(link: str) -> str | None:
+def _canonical_note(link: str, depth: int = 0) -> str | None:
+    """Accept direct note article links and unwrap common search redirects safely."""
+    if depth > 3 or not link:
+        return None
     try:
-        url = urllib.parse.unquote(html.unescape(link)).strip()
+        url = html.unescape(str(link)).strip().replace('\\/', '/')
         parsed = urlparse(url)
-        if parsed.hostname in {"www.google.com", "www.google.co.jp"}:
-            target = urllib.parse.parse_qs(parsed.query).get('url', [None])[0]
-            if target: return _canonical_note(target)
-        if parsed.hostname in {"www.bing.com", "www.bing.co.jp"}:
-            target = urllib.parse.parse_qs(parsed.query).get('url', [None])[0]
-            if target: return _canonical_note(target)
-        if parsed.scheme != "https" or parsed.hostname not in NOTE_HOSTS:
+        if parsed.scheme not in {'https', 'http'}:
             return None
-        # Only actual article pages, not search/profile pages or unrelated note routes.
-        if not re.search(r"/(?:[^/]+/)?n/[a-zA-Z0-9_-]{5,}$", parsed.path):
+        host = (parsed.hostname or '').lower()
+        if host in NOTE_HOSTS:
+            if parsed.scheme != 'https':
+                return None
+            # note URLs: /author/n/n123... and /n/n123... (not profiles/search pages)
+            if not re.fullmatch(r'/(?:[^/]+/)?n/n[a-zA-Z0-9_-]{5,}', parsed.path):
+                return None
+            return urlunparse(('https', host, parsed.path, '', '', ''))
+        if host not in SEARCH_HOSTS and host != 'www.bing.co.jp':
             return None
-        return urlunparse((parsed.scheme, parsed.hostname, parsed.path, '', '', ''))
+        query = urllib.parse.parse_qs(parsed.query)
+        for key in ('url', 'q', 'target', 'r', 'u'):
+            for value in query.get(key, []):
+                value = urllib.parse.unquote(value)
+                if value.startswith('http'):
+                    found = _canonical_note(value, depth + 1)
+                    if found:
+                        return found
+                # Bing tracking URLs sometimes use base64 with a two-character prefix.
+                if key == 'u' and value.startswith('a1') and len(value) < 4000:
+                    encoded = value[2:]
+                    try:
+                        decoded = base64.urlsafe_b64decode(encoded + '=' * (-len(encoded) % 4)).decode('utf-8')
+                        found = _canonical_note(decoded, depth + 1)
+                        if found:
+                            return found
+                    except (ValueError, UnicodeDecodeError):
+                        pass
+        return None
     except (ValueError, TypeError):
         return None
+
+
+def _note_links_in_text(text: str) -> list[str]:
+    """Find explicit note links in plain text, HTML attributes and escaped RSS snippets."""
+    decoded = html.unescape(str(text or '')).replace('\\/', '/')
+    variants = [decoded, urllib.parse.unquote(decoded)]
+    candidates = []
+    for chunk in variants:
+        for match in re.findall(r'https?://(?:www\.)?note\.com/[^\s<>"\\]+', chunk, re.I):
+            # Strip trailing punctuation from prose, without accepting non-note hosts.
+            found = _canonical_note(match.rstrip('.,;!)]}）、。'))
+            if found and found not in candidates:
+                candidates.append(found)
+    return candidates
 
 
 def _parse_bing_rss(payload: str) -> list[dict]:
     root = ET.fromstring(payload)
     leads = []
     for item in root.findall('.//item'):
-        link = _canonical_note((item.findtext('link') or '').strip())
-        if not link: continue
         title = html.unescape(item.findtext('title') or '')[:240]
         desc = html.unescape(re.sub(r'<[^>]*>', ' ', item.findtext('description') or ''))[:360]
-        leads.append({'url':link, 'title':title, 'snippet':desc, 'search_published_at': item.findtext('pubDate') or '未確認'})
+        link_value = (item.findtext('link') or '').strip()
+        links = [_canonical_note(link_value)] + _note_links_in_text(link_value + ' ' + (item.findtext('description') or ''))
+        for link in dict.fromkeys(x for x in links if x):
+            leads.append({'url':link, 'title':title, 'snippet':desc,
+                          'search_published_at': item.findtext('pubDate') or '未確認'})
     return leads
 
 
@@ -92,18 +131,62 @@ class _GoogleResults(HTMLParser):
     def __init__(self):
         super().__init__()
         self.links = []
+        self.hrefs = []
+
     def handle_starttag(self, tag, attrs):
-        if tag != 'a': return
+        if tag != 'a':
+            return
         href = dict(attrs).get('href', '')
-        if href.startswith('/url?'): href = 'https://www.google.com'+href
+        if not href:
+            return
+        self.hrefs.append(href)
+        if href.startswith('/url?'):
+            href = 'https://www.google.com' + href
         candidate = _canonical_note(href)
-        if candidate: self.links.append(candidate)
+        if candidate and candidate not in self.links:
+            self.links.append(candidate)
 
 
 def _parse_google_html(payload: str) -> list[dict]:
     parser = _GoogleResults()
     parser.feed(payload)
-    return [{'url': url, 'title': '', 'snippet': '', 'search_published_at':'未確認'} for url in parser.links]
+    urls = list(parser.links)
+    # Some search-page variants embed escaped URLs rather than a direct anchor.
+    for url in _note_links_in_text(payload):
+        if url not in urls:
+            urls.append(url)
+    return [{'url': url, 'title': '', 'snippet': '', 'search_published_at':'未確認'} for url in urls]
+
+
+def _diagnose(payload: str, engine: str, parsed: list[dict]) -> dict:
+    """Counts and sanitized hostnames only; never expose raw search HTML or tokens."""
+    diagnostic = {'note_mentions': len(re.findall(r'note\.com', payload, re.I)),
+                  'found_note_articles': len(parsed)}
+    if engine == 'Bing Web RSS':
+        root = ET.fromstring(payload)
+        items = root.findall('.//item')
+        diagnostic['raw_results'] = len(items)
+        hosts = []
+        for item in items[:5]:
+            host = (urlparse((item.findtext('link') or '').strip()).hostname or 'URLなし')
+            if host not in hosts:
+                hosts.append(host)
+        diagnostic['sample_hosts'] = hosts
+    else:
+        parser = _GoogleResults()
+        parser.feed(payload)
+        diagnostic['raw_results'] = len(parser.hrefs)
+        hosts = []
+        for href in parser.hrefs[:25]:
+            if href.startswith('/url?'):
+                host = 'www.google.com/転送URL'
+            else:
+                host = urlparse(href).hostname or '相対リンク'
+            if host not in hosts:
+                hosts.append(host)
+        diagnostic['sample_hosts'] = hosts[:6]
+        diagnostic['possible_restriction'] = bool(re.search(r'captcha|unusual traffic|consent\.google|sorry/index', payload, re.I))
+    return diagnostic
 
 
 def research(title: str, reader: str = "", paid_value: str = "", custom: str = "") -> dict:
@@ -125,23 +208,22 @@ def research(title: str, reader: str = "", paid_value: str = "", custom: str = "
         try:
             payload, _ = legacy._fetch(url, SEARCH_HOSTS)
             parsed = parser(payload)
-            # Diagnostic: distinguish search pages with no items from items filtered as non-note links.
-            if engine == 'Bing Web RSS':
-                root = ET.fromstring(payload)
-                log['raw_results'] = len(root.findall('.//item'))
-                log['note_link_results'] = len(parsed)
-            else:
-                log['raw_results'] = len(re.findall(r'<a\b', payload, re.I))
-                log['note_link_results'] = len(parsed)
-                if re.search(r'captcha|unusual traffic|consent.google|sorry/index', payload, re.I):
-                    log['possible_restriction'] = True
+            diag = _diagnose(payload, engine, parsed)
+            log.update(diag)
             log['candidate_count'] = len(parsed)
+            count = diag['raw_results']
+            mentions = diag['note_mentions']
+            sample_hosts = ', '.join(diag['sample_hosts'][:3]) or 'なし'
             if parsed:
-                log['status'] = '検索結果取得'
-            elif not log['raw_results']:
-                log['status'] = '検索結果そのものが0件か形式が不一致'
+                log['status'] = f'記事URL抽出成功（検索リンク{count}・note表記{mentions}）'
+            elif diag.get('possible_restriction'):
+                log['status'] = '検索サービス側の制限ページ疑い（要確認）'
+            elif count == 0:
+                log['status'] = '検索リンク0件／検索サービスの応答形式を要確認'
+            elif mentions == 0:
+                log['status'] = f'検索リンク{count}件・note.com表記0件／候補不在か検索応答の問題（リンク先: {sample_hosts}）'
             else:
-                log['status'] = '検索結果はあるがnote記事の直接URLを抽出できず'
+                log['status'] = f'検索リンク{count}件・note.com表記{mentions}件、記事URL抽出0件（リンク先: {sample_hosts}）'
             for item in parsed:
                 if item['url'] not in seen:
                     seen.add(item['url'])
