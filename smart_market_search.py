@@ -115,7 +115,7 @@ def research(title: str, reader: str = "", paid_value: str = "", custom: str = "
     for idx, query in enumerate(queries):
         if idx < 3:
             engine = 'Bing Web RSS'
-            url = 'https://www.bing.com/search?' + urllib.parse.urlencode({'q': 'site:note.com/ "'+query+'"', 'format': 'rss'})
+            url = 'https://www.bing.com/search?' + urllib.parse.urlencode({'q': 'site:note.com '+query, 'format': 'rss'})
             parser = _parse_bing_rss
         else:
             engine = 'Google Web HTML'
@@ -125,8 +125,23 @@ def research(title: str, reader: str = "", paid_value: str = "", custom: str = "
         try:
             payload, _ = legacy._fetch(url, SEARCH_HOSTS)
             parsed = parser(payload)
+            # Diagnostic: distinguish search pages with no items from items filtered as non-note links.
+            if engine == 'Bing Web RSS':
+                root = ET.fromstring(payload)
+                log['raw_results'] = len(root.findall('.//item'))
+                log['note_link_results'] = len(parsed)
+            else:
+                log['raw_results'] = len(re.findall(r'<a\b', payload, re.I))
+                log['note_link_results'] = len(parsed)
+                if re.search(r'captcha|unusual traffic|consent.google|sorry/index', payload, re.I):
+                    log['possible_restriction'] = True
             log['candidate_count'] = len(parsed)
-            log['status'] = '取得できたが記事候補なし' if not parsed else '検索結果取得'
+            if parsed:
+                log['status'] = '検索結果取得'
+            elif not log['raw_results']:
+                log['status'] = '検索結果そのものが0件か形式が不一致'
+            else:
+                log['status'] = '検索結果はあるがnote記事の直接URLを抽出できず'
             for item in parsed:
                 if item['url'] not in seen:
                     seen.add(item['url'])
@@ -161,7 +176,7 @@ def research(title: str, reader: str = "", paid_value: str = "", custom: str = "
             'explicit_price_leads':sum(bool(r.get('price_evidence')) for r in results),
             'verified_purchases':0,
             'conclusion':'検索結果は競合の候補であり、価格・購入人数・売上・需要を証明しません。価格は元ページでCEOが確認してください。',
-            'limits':'BingのRSSとGoogle一般Web検索の取得可否・検索範囲に依存します。記事候補0件は競合不在を意味せず、検索停止・ブロックもあり得ます。',
+            'limits':'BingのRSSとGoogle一般Web検索の取得可否・検索範囲に依存します。記事候補0件は競合不在を意味せず、検索停止・ブロック・検索URLの間接化・HTML仕様変更もあり得ます。',
             'search_limit':'最大4検索＋最大3記事の公開HTTPアクセス。OpenAI API不使用。'}
 
 
