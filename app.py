@@ -8,6 +8,7 @@ import product_validation as product_gate
 import profit_gate
 import market_scout
 import evidence_scout
+import active_evidence
 import streamlit as st
 import streamlit.components.v1 as components
 from openai import OpenAI
@@ -15,7 +16,7 @@ from supabase import create_client
 
 st.set_page_config(page_title='ZEROBOARD AI', page_icon='🧠', layout='wide')
 st.title('🧠 ZEROBOARD AI')
-st.caption('AI経営会議システム / Ver.37 EVIDENCE SCOUT / PROFIT FIRST')
+st.caption('AI経営会議システム / Ver.38 ACTIVE EVIDENCE RESEARCH / PROFIT FIRST')
 st.write('あなたがCEO。4人のAI役員が議論し、最後に議長AIが経営判断をまとめます。')
 st.divider()
 client = OpenAI(api_key=st.secrets['OPENAI_API_KEY'])
@@ -792,6 +793,54 @@ with tab_office:
                         st.session_state.ceo_topic_input=evidence_scout.brief(idea,evidence_audit)
                         st.success('競合・需要の未確認事項を議題にセット。CEOが会議を開始するまではAPI費用なし。')
                     st.caption('有料記事の制作はここから直接実行しません。追加調査→制作前審査→CEO判断の順に進みます。')
+    st.divider()
+    st.subheader('🌐 Ver.38 ACTIVE EVIDENCE RESEARCH — note公開商品ページを調べる')
+    st.caption('CEOが選んだ候補だけ、公開検索RSSからnoteの記事ページを最大3件確認。OpenAI API呼び出しなし・自動課金なし。HTTP通信は行います。競合価格や需要を保証しません。')
+    if scout_report_error or scout_validation_error or not scout_options:
+        st.info('候補がまだ読み込めません。保存済み市場調査が表示できるか確認してください。')
+    else:
+        titles=[f"{i+1}. {c['title']}" for i,c in enumerate(scout_options)]
+        chosen=st.selectbox('追加調査する商品候補（note向け）',options=list(range(len(titles))),format_func=lambda i:titles[i],key='active_evidence_selected')
+        selected_idea=scout_options[chosen]
+        st.write('**想定読者：**', selected_idea.get('reader') or '未確認')
+        st.write('**届けたい価値：**', selected_idea.get('paid_value') or '未確認')
+        search_terms=st.text_input('公開note検索キーワード（短く編集可）',value=active_evidence._terms(selected_idea['title']),key=f'active_evidence_query_{chosen}')
+        if st.button('🔎 この候補のnote公開ページを最大3件検索（外部Web通信）',key='active_evidence_run'):
+            with st.spinner('公開検索とnote記事のメタ情報を確認しています…'):
+                try:
+                    st.session_state['active_evidence_result']=active_evidence.research(selected_idea['title'],3,search_terms)
+                    st.session_state['active_evidence_idea']=selected_idea
+                except Exception as exc:
+                    st.session_state.pop('active_evidence_result',None)
+                    st.warning('追加検索が完了しませんでした。API料金は使用していません。')
+                    st.code(str(exc))
+        active_result=st.session_state.get('active_evidence_result')
+        active_idea=st.session_state.get('active_evidence_idea')
+        if active_result and active_idea:
+            st.caption('保存済みの調査結果ではありません。現在の画面セッション内にのみ残ります。')
+            st.info('🔍 '+active_result['candidate_title']+'｜公開ページ取得 '+str(active_result['checked_pages'])+' 件／価格手がかり '+str(active_result['explicit_price_leads'])+' 件')
+            st.write('**調査日時（UTC）：**',active_result['retrieved_at'])
+            for idx,article in enumerate(active_result['articles'],1):
+                with st.expander(f"{idx}. {article.get('title') or '公開記事'}｜{article['status']}"):
+                    st.write('**元ページ：**',article['url'])
+                    st.write('**価格：**',article.get('price_status','未確認'))
+                    st.write('**レビュー：**',article.get('review_status','未確認'))
+                    st.write('**購入実績：**',article.get('purchase_status','未確認'))
+                    st.write('**記事公開日：**',article.get('article_published_at') or article.get('search_published_at') or '未確認')
+                    if article.get('price_evidence'):
+                        st.write('**構造化データ上の価格候補：**',article['price_evidence'])
+                    if article.get('description'):
+                        st.write('**ページ説明文（原文確認が必要）：**',article['description'])
+                    st.markdown('[noteの元ページを開いて確認]('+article['url']+')')
+            if not active_result['articles']:
+                st.warning('公開検索で直接note.comに到達する候補がありませんでした。競合が存在しない意味ではありません。')
+            for error in active_result['errors']:
+                st.caption('取得時の制約：'+str(error))
+            st.warning(active_result['conclusion']+' '+active_result['limits'])
+            st.download_button('📥 今回の調査結果をJSONで保存',data=json.dumps(active_result,ensure_ascii=False,indent=2),file_name='zeroboard_active_evidence.json',mime='application/json',key='active_evidence_export')
+            if st.button('🧠 今回の確認状況をAI経営会議の議題にセット（会議実行なし）',key='active_evidence_brief'):
+                st.session_state.ceo_topic_input=active_evidence.meeting_brief(active_idea,active_result)
+                st.success('経営会議タブへ議題をセットしました。会議を開始するまではOpenAI API料金なし。')
     st.divider()
     st.subheader('📝 PROFIT FIRST / Ver.35 — 制作前の根拠審査')
     st.caption('追加調査を済ませた商品候補をオフィスでも確認。需要の根拠は未検証なら未確認として表示します。')
