@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 import product_validation as product_gate
 import profit_gate
 import market_scout
+import evidence_scout
 import streamlit as st
 import streamlit.components.v1 as components
 from openai import OpenAI
@@ -14,7 +15,7 @@ from supabase import create_client
 
 st.set_page_config(page_title='ZEROBOARD AI', page_icon='🧠', layout='wide')
 st.title('🧠 ZEROBOARD AI')
-st.caption('AI経営会議システム / Ver.36 MARKET SCOUT / PROFIT FIRST')
+st.caption('AI経営会議システム / Ver.37 EVIDENCE SCOUT / PROFIT FIRST')
 st.write('あなたがCEO。4人のAI役員が議論し、最後に議長AIが経営判断をまとめます。')
 st.divider()
 client = OpenAI(api_key=st.secrets['OPENAI_API_KEY'])
@@ -750,7 +751,7 @@ with tab_research:
     st.caption('🛡️ 日次調査は見出しベースの仮説調査です。noteランキング・売上、本文照合、実需、著作物の利用許諾は検証していません。公開前にCEOが確認してください。')
 
 with tab_office:
-    st.subheader('🔭 Ver.36 MARKET SCOUT — 代替商品候補の比較（API不要）')
+    st.subheader('🔭 Ver.37 EVIDENCE SCOUT — 競合・購入根拠の選別（API不要）')
     st.caption('最近の保存済み市場調査から別の候補を比較。スコアは企画情報の充実度で、販売確率ではありません。購買根拠のない候補を制作承認しません。')
     scout_reports,scout_report_error=daily_research_rows(limit=14)
     scout_validations,scout_validation_error=product_validation_rows(limit=40)
@@ -768,6 +769,17 @@ with tab_office:
                     st.write('**有料で届ける価値（仮説）：**',idea['paid_value'] or '未確認')
                     st.write('**費用をかけない検証案：**',idea['validation'] or '未確認')
                     st.write('**判定：**',idea['decision'])
+                    evidence_audit=evidence_scout.audit_idea(idea)
+                    st.info('🔎 購入実績：未確認 / 競合の現行価格：未確認 / レビューの真正性：未確認。RSSだけで購入需要を立証できません。')
+                    st.write(f"**情報源の関連性（自動分類・未検証）：** {evidence_audit['related_sources']} / {evidence_audit['total_sources']} 件｜競合候補の手がかり：{len(evidence_audit['competitor_leads'])} 件")
+                    st.write('**次に調べること：**',evidence_audit['next_action'])
+                    with st.expander('🔗 情報源ごとの分類・公開日・取得日時（原ページ未確認）'):
+                        for r in evidence_audit['source_reviews']:
+                            st.write(f"**{r['relevance']}**｜{r['title']}")
+                            st.caption(f"公開：{r['published_date']}｜取得：{r['retrieved_at']}｜価格：{r['price_status']}｜レビュー：{r['review_status']}｜購入・売上：{r['purchase_status']}")
+                            if r['url'].startswith(('http://','https://')):
+                                st.markdown(f"[原ページをCEOが確認する]({r['url']})")
+                    st.caption(evidence_audit['caveat'])
                     if idea['already_researched']:
                         st.warning('この候補は以前に追加調査済み。購買根拠が強化されるまで別の候補を優先。')
                     st.caption(idea['caveat'])
@@ -777,8 +789,8 @@ with tab_office:
                         if url.startswith(('http://','https://')):
                             st.markdown(f"🔗 [{source.get('title') or '公開見出し'}]({url})｜公開：{source.get('published_date') or '不明'}｜取得：{source.get('retrieved_at') or '不明'}")
                     if st.button('🧠 この候補の追加調査を経営会議に依頼',key=f"scout_brief_{idea['report_id']}_{rank}"):
-                        st.session_state.ceo_topic_input=market_scout.brief(idea)
-                        st.success('議題をセットしたで。CEOが会議を開始するまではAPI費用なし。')
+                        st.session_state.ceo_topic_input=evidence_scout.brief(idea,evidence_audit)
+                        st.success('競合・需要の未確認事項を議題にセット。CEOが会議を開始するまではAPI費用なし。')
                     st.caption('有料記事の制作はここから直接実行しません。追加調査→制作前審査→CEO判断の順に進みます。')
     st.divider()
     st.subheader('📝 PROFIT FIRST / Ver.35 — 制作前の根拠審査')
