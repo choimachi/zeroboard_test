@@ -10,6 +10,7 @@ import market_scout
 import evidence_scout
 import active_evidence
 import smart_market_search
+import note_direct_scout
 import streamlit as st
 import streamlit.components.v1 as components
 from openai import OpenAI
@@ -17,7 +18,7 @@ from supabase import create_client
 
 st.set_page_config(page_title='ZEROBOARD AI', page_icon='🧠', layout='wide')
 st.title('🧠 ZEROBOARD AI')
-st.caption('AI経営会議システム / Ver.39 SMART MARKET SEARCH / PROFIT FIRST')
+st.caption('AI経営会議システム / Ver.40 NOTE DIRECT SCOUT / PROFIT FIRST')
 st.write('あなたがCEO。4人のAI役員が議論し、最後に議長AIが経営判断をまとめます。')
 st.divider()
 client = OpenAI(api_key=st.secrets['OPENAI_API_KEY'])
@@ -848,6 +849,46 @@ with tab_office:
             if st.button('🧠 今回の確認状況をAI経営会議の議題にセット（会議実行なし）',key='active_evidence_brief'):
                 st.session_state.ceo_topic_input=smart_market_search.meeting_brief(active_idea,active_result)
                 st.success('経営会議タブへ議題をセットしました。会議を開始するまではOpenAI API料金なし。')
+    st.divider()
+    st.subheader('📰 Ver.40 NOTE DIRECT SCOUT — 公開noteの記事を直接確認')
+    st.caption('公開タグページから記事URLを取得し、最大3件のタイトル・公開日・構造化価格情報を確認。通信は最大4回、OpenAI API不要。表示結果はセッション内のみ。')
+    note_tag = st.text_input('公開noteの検索タグ', value='AI副業', key='note_direct_tag',
+                             help='noteのタグ名を入力。タグ掲載だけでは競合と断定できません。')
+    if st.button('🔎 noteの公開記事を最大3件調査する（外部通信）', key='note_direct_run'):
+        with st.spinner('noteの公開ページを確認しています…'):
+            try:
+                st.session_state['note_direct_result'] = note_direct_scout.scout(note_tag, max_articles=3)
+            except Exception as exc:
+                st.session_state.pop('note_direct_result', None)
+                st.error('公開note調査の処理に失敗しました。')
+                st.code(f'{type(exc).__name__}: {exc}')
+    note_result = st.session_state.get('note_direct_result')
+    if note_result:
+        st.write('**実行結果：**', note_result.get('status', '不明'))
+        st.write('**調査日時（UTC）：**', note_result.get('checked_at_utc', '不明'))
+        st.write('**タグページの記事リンク数：**', note_result.get('tag_article_links_found', '未取得'))
+        st.write('**実際に確認した記事数：**', len(note_result.get('articles', [])))
+        st.caption('OpenAI API料金なし。記事URLを見つけても、有料販売・売上・需要の証明にはなりません。')
+        for index, article in enumerate(note_result.get('articles', []), 1):
+            with st.expander(f"{index}. {article.get('title') or 'タイトル未取得'}｜{article.get('status', '不明')}"):
+                st.write('**公開記事URL：**', article.get('url', '未確認'))
+                st.write('**公開日（ページ内表記・未検証）：**', article.get('published_date_claim') or '未確認')
+                st.write('**取得日時（UTC）：**', article.get('retrieved_at_utc') or '未確認')
+                st.write('**販売価格：**', article.get('price_status', '未確認'))
+                if article.get('structured_prices'):
+                    st.json(article['structured_prices'])
+                st.write('**レビュー・購入実績：** 未確認')
+                st.write('**競合としての関連性：**', article.get('relevance_status', '未確認'))
+                if str(article.get('url', '')).startswith('https://note.com/'):
+                    st.link_button('🔗 noteの原ページを確認', article['url'])
+        st.warning(note_result.get('important', '原ページ未確認。販売需要の証明ではありません。'))
+        st.download_button('📥 公開note調査結果をJSONで保存',
+                           data=json.dumps(note_result, ensure_ascii=False, indent=2),
+                           file_name='zeroboard_note_direct_scout.json', mime='application/json',
+                           key='note_direct_export')
+        if st.button('🧠 今回の公開記事情報を経営会議の議題にセット（会議は未実行）', key='note_direct_brief'):
+            st.session_state.ceo_topic_input = note_direct_scout.meeting_brief('AI副業市場の記事参考調査', note_result)
+            st.success('経営会議タブにセットしました。実行ボタンを押すまではAI会議は動きません。')
     st.divider()
     st.subheader('📝 PROFIT FIRST / Ver.35 — 制作前の根拠審査')
     st.caption('追加調査を済ませた商品候補をオフィスでも確認。需要の根拠は未検証なら未確認として表示します。')
