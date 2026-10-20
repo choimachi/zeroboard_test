@@ -12,6 +12,7 @@ import active_evidence
 import smart_market_search
 import note_direct_scout
 import product_market_match
+import relevance_first
 import streamlit as st
 import streamlit.components.v1 as components
 from openai import OpenAI
@@ -19,7 +20,7 @@ from supabase import create_client
 
 st.set_page_config(page_title='ZEROBOARD AI', page_icon='🧠', layout='wide')
 st.title('🧠 ZEROBOARD AI')
-st.caption('AI経営会議システム / Ver.40 NOTE DIRECT SCOUT / PROFIT FIRST')
+st.caption('AI経営会議システム / Ver.42 RELEVANCE FIRST / PROFIT FIRST')
 st.write('あなたがCEO。4人のAI役員が議論し、最後に議長AIが経営判断をまとめます。')
 st.divider()
 client = OpenAI(api_key=st.secrets['OPENAI_API_KEY'])
@@ -851,12 +852,12 @@ with tab_office:
                 st.session_state.ceo_topic_input=smart_market_search.meeting_brief(active_idea,active_result)
                 st.success('経営会議タブへ議題をセットしました。会議を開始するまではOpenAI API料金なし。')
     st.divider()
-    st.subheader('🧩 Ver.41 PRODUCT MARKET MATCH — 商品候補と公開noteを照合')
-    st.caption('保存済み商品候補から関連タグを提案し、公開noteの記事を最大3件だけ確認。タイトルの共通語は売上・購入需要・競合性を証明しません。OpenAI API不要。')
+    st.subheader('🧩 Ver.42 RELEVANCE FIRST — 商品候補に近い公開noteを優先調査')
+    st.caption('タグ掲載リンクから先に見出しの関連性を比較し、上位最大3件だけ記事ページを確認。通信最大4回・OpenAI API不要。見出し一致は購入需要や販売実績を証明しません。')
     pm_rows, pm_error = product_validation_rows(limit=30)
     pm_options = {'✍️ 手入力の企画案': None}
     if pm_error:
-        st.caption('保存済み商品候補が読み込めないため、手入力で試せます。')
+        st.caption('保存済み商品候補を読み込めない場合でも手入力で調査できます。')
     for pm_row in pm_rows:
         pm_options[product_market_match.get_candidate_label(pm_row)] = pm_row
     pm_selection = st.selectbox('比較する商品候補', list(pm_options), key='v41_selection')
@@ -873,44 +874,69 @@ with tab_office:
         pm_value = ''
     pm_suggest = product_market_match.suggest_tag(pm_title, pm_reader, pm_value)
     pm_tag = st.text_input('公開noteタグ（変更可能）', value=pm_suggest,
-                           key=f'v41_tag_{pm_suggest}', max_chars=40)
-    if st.button('🔎 この企画に関連する公開noteを最大3件調査', key='v41_run'):
+                           key=f'v42_tag_{pm_suggest}', max_chars=40)
+    if st.button('🔎 関連度の高い公開noteを最大3件調査', key='v42_run'):
         if not pm_title.strip():
             st.warning('商品候補の名前を入力してください。')
         else:
             try:
-                with st.spinner('公開ページを確認中（最大4アクセス）…'):
-                    report41 = note_direct_scout.scout(pm_tag, max_articles=3)
-                st.session_state['v41_result'] = {'title':pm_title, 'reader':pm_reader, 'tag':pm_tag, 'report':report41}
+                with st.spinner('タグ掲載記事を順位付けし、最大3記事の公開情報を確認中…'):
+                    report42 = relevance_first.scout(pm_tag, pm_title, pm_reader, pm_value, max_articles=3)
+                st.session_state['v42_result'] = {'title':pm_title, 'reader':pm_reader, 'paid_value':pm_value,
+                                                   'tag':pm_tag, 'report':report42}
             except Exception as exc:
-                st.session_state.pop('v41_result',None)
+                st.session_state.pop('v42_result',None)
                 st.error(f'調査に失敗：{type(exc).__name__}: {exc}')
-    pm_active = st.session_state.get('v41_result')
+    pm_active = st.session_state.get('v42_result')
     if pm_active:
         pm_report = pm_active['report']
         st.write('**対象候補：**', pm_active['title'])
         st.write('**検索タグ：**', pm_active['tag'])
-        st.write('**調査結果：**', pm_report.get('status', '不明'))
+        st.write('**実行結果：**', pm_report.get('status','不明'))
         st.write('**調査日時（UTC）：**', pm_report.get('checked_at_utc','未確認'))
         st.write('**タグページのリンク数：**', pm_report.get('tag_article_links_found','未確認'))
-        compared = product_market_match.compare(pm_active['title'], pm_active['reader'], pm_report)
-        for ii, a in enumerate(compared,1):
-            with st.expander(f"{ii}. {a['title']}｜{a['relevance']}"):
-                st.write('**原ページ：**', a['url'])
-                st.write('**公開日：**', a['published_date'])
-                st.write('**取得日時：**', a['retrieved_at'])
-                st.write('**価格：**', a['price_status'])
-                if a['price']: st.json(a['price'])
-                st.write('**購入数・売上・レビュー：** 未確認')
-                if a['url'].startswith('https://note.com/'):
-                    st.link_button('🔗 原ページを開いて価格・内容を目視確認',a['url'])
-        st.info('これは参考記事の見出し照合やで。購入需要、競合商品の現行価格、販売実績は確認されていません。')
-        if st.button('🧠 この候補の市場仮説を経営会議の議題にセット（会議は未実行）',key='v41_meeting'):
+        st.write('**見出しに関連語があったリンク数：**', pm_report.get('tag_links_scored_positive','未確認'))
+        st.caption(pm_report.get('selection_method',''))
+        if pm_report.get('status') not in ('complete','no_article_links'):
+            st.warning('公開ページにアクセスできなかった可能性があります。検索結果0件を「競合なし」と解釈しないでください。')
+        with st.expander('🔬 取得前の見出しランキング（最大10件・根拠確認用）'):
+            for entry in pm_report.get('ranked_preview',[]):
+                st.write(f"**暫定点 {entry['rank_score']}**｜{entry['headline_hint']}")
+                st.caption('共通テーマ：'+(', '.join(entry['matched_topics']) or 'なし（暫定）'))
+                if entry.get('url','').startswith('https://note.com/'):
+                    st.caption(entry['url'])
+        compared=[]
+        for ii, article in enumerate(pm_report.get('articles',[]),1):
+            article_title = article.get('title') or article.get('headline_hint') or 'タイトル未確認'
+            compared.append({'title':article_title, 'url':article.get('url'),
+                             'ranking_hint':article.get('headline_hint'),
+                             'rank_score':article.get('rank_score'),
+                             'matched_topics':article.get('matched_topics'),
+                             'published_date':article.get('published_date_claim') or '未確認',
+                             'retrieved_at':article.get('retrieved_at_utc'),
+                             'price':article.get('structured_prices') or '未確認',
+                             'price_status':article.get('price_status'),
+                             'purchase':'未確認','reviews':'未確認'})
+            with st.expander(f"{ii}. {article_title}｜見出し暫定点 {article['rank_score']}（競合性未確認）"):
+                st.write('**一致したテーマ（見出しのみ）：**', ', '.join(article['matched_topics']) or 'なし')
+                st.write('**掲載リンクの見出し：**', article['headline_hint'])
+                st.write('**公開日：**', article.get('published_date_claim') or '未確認')
+                st.write('**取得日時：**', article.get('retrieved_at_utc') or '未確認')
+                st.write('**公開価格：**', article.get('price_status') or '未確認')
+                if article.get('structured_prices'): st.json(article['structured_prices'])
+                st.write('**購入実績・レビュー・売上：** 未確認')
+                st.write('**詳細取得の状態：**',article.get('status','未確認'))
+                if article.get('url','').startswith('https://note.com/'):
+                    st.link_button('🔗 原ページで価格・内容を目視確認',article['url'])
+        if pm_report.get('tag_links_scored_positive',0) == 0:
+            st.warning('タグ内の記事見出しでは関連語を確認できませんでした。上位は掲載順の参考記事で、適切な競合と判定したわけではありません。')
+        st.info('関連度は見出しに含まれる語句だけの暫定評価。本文、競合の価格、販売実績、実需要は未確認。')
+        if st.button('🧠 市場仮説を経営会議の議題にセット（会議未実行）',key='v42_meeting'):
             st.session_state.ceo_topic_input = product_market_match.meeting_brief(
-                pm_active['title'],pm_active['reader'],pm_active['tag'],pm_report,compared)
-            st.success('議題をセットしました。経営会議タブでCEOが実行するまではAPIは使用しません。')
-        st.download_button('📥 比較情報をJSONで保存', data=json.dumps({**pm_active,'matched':compared},ensure_ascii=False,indent=2),
-                           file_name='zeroboard_product_market_match.json',mime='application/json',key='v41_export')
+                pm_active['title'], pm_active['reader'], pm_active['tag'], pm_report, compared)
+            st.success('議題をセットしたで。CEOが経営会議を実行するまでOpenAI APIは使われません。')
+        st.download_button('📥 今回の比較結果をJSONで保存', data=json.dumps({**pm_active,'matched':compared},ensure_ascii=False,indent=2,default=str),
+                           file_name='zeroboard_relevance_first.json',mime='application/json',key='v42_export')
     st.divider()
     st.subheader('📰 Ver.40 NOTE DIRECT SCOUT — 公開noteの記事を直接確認')
     st.caption('公開タグページから記事URLを取得し、最大3件のタイトル・公開日・構造化価格情報を確認。通信は最大4回、OpenAI API不要。表示結果はセッション内のみ。')
