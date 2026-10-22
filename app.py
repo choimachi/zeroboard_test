@@ -13,6 +13,7 @@ import smart_market_search
 import note_direct_scout
 import product_market_match
 import relevance_first
+import product_differentiation
 import streamlit as st
 import streamlit.components.v1 as components
 from openai import OpenAI
@@ -20,7 +21,7 @@ from supabase import create_client
 
 st.set_page_config(page_title='ZEROBOARD AI', page_icon='🧠', layout='wide')
 st.title('🧠 ZEROBOARD AI')
-st.caption('AI経営会議システム / Ver.43 COMPETITOR EVIDENCE / PROFIT FIRST')
+st.caption('AI経営会議システム / Ver.44 PRODUCT DIFFERENTIATION / PROFIT FIRST')
 st.write('あなたがCEO。4人のAI役員が議論し、最後に議長AIが経営判断をまとめます。')
 st.divider()
 client = OpenAI(api_key=st.secrets['OPENAI_API_KEY'])
@@ -937,6 +938,33 @@ with tab_office:
                 st.caption(article.get('evidence_limits') or '元ページの目視確認が必要です。')
                 if article.get('url','').startswith('https://note.com/'):
                     st.link_button('🔗 原ページで価格・内容を目視確認',article['url'])
+        st.divider()
+        st.subheader('🧭 Ver.44 PRODUCT DIFFERENTIATION — 公開情報から独自価値を検討')
+        st.caption('追加の外部通信・OpenAI APIなし。競合の見出しと公開説明だけを使った仮説であり、購入需要や競合の有料内容は未確認。')
+        diff44 = product_differentiation.analyze(
+            pm_active['title'], pm_active['reader'], pm_active.get('paid_value',''),
+            pm_report.get('articles', []))
+        st.write('**購入者に届けたい成果（仮説）：**', diff44['customer_outcome_hypothesis'])
+        with st.expander('🔎 競合の公開文言に何が書かれているか', expanded=True):
+            for item44 in diff44['competitor_public_mentions']:
+                st.write('**' + (item44['title'] or 'タイトル未確認') + '**')
+                st.write('検出した言葉：', '、'.join(x['term'] for x in item44['mentions']) or '今回の辞書では検出なし')
+                st.caption(item44['inference'])
+        st.write('**独自価値の候補（未検証）：**')
+        for item44 in diff44['differentiation_options']:
+            st.write('・' + item44['idea'])
+            st.caption(item44['signal'])
+        with st.expander('🧪 無料でできる需要検証の手順'):
+            for step44 in diff44['free_validation']:
+                st.write('・' + step44)
+        st.warning(diff44['limitations'])
+        if st.button('🧠 差別化仮説を経営会議にセット（会議未実行）', key='v44_meeting'):
+            st.session_state.ceo_topic_input = product_differentiation.meeting_brief(diff44)
+            st.success('経営会議の議題にセットしました。会議の実行・販売・公開はしていません。')
+        st.download_button('📥 差別化仮説をJSON保存',
+            data=json.dumps(diff44, ensure_ascii=False, indent=2),
+            file_name='zeroboard_product_differentiation.json',
+            mime='application/json', key='v44_download')
         if pm_report.get('tag_links_scored_positive',0) == 0:
             st.warning('タグ内の記事見出しでは関連語を確認できませんでした。上位は掲載順の参考記事で、適切な競合と判定したわけではありません。')
         st.info('関連度は見出しに含まれる語句だけの暫定評価。本文、競合の価格、販売実績、実需要は未確認。')
