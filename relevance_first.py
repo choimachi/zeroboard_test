@@ -12,6 +12,7 @@ from urllib.parse import quote
 from urllib.error import HTTPError, URLError
 
 import note_direct_scout as note
+import competitor_evidence
 
 # Explicitly disclosed related-word groups: heuristic topical evidence, not verified competitors.
 TOPIC_GROUPS = (
@@ -143,9 +144,8 @@ def scout(tag, title, reader='', value='', max_articles=3):
                 doc = note.Metadata()
                 doc.feed(page.get('html') or '')
                 out['title'] = html.unescape(doc.meta.get('og:title',doc.page_title) or '').strip()[:200]
-                out['published_date_claim'] = doc.meta.get('article:published_time') or doc.meta.get('datePublished')
-                out['structured_prices'] = note.extract_price(doc.jsonld)
-                out['price_status'] = ('構造化価格候補（原ページ確認必須）' if out['structured_prices'] else '未確認')
+                out.update(competitor_evidence.extract(doc))
+                out['price_status'] = ('JSON-LDの公開価格候補あり（元ページ要確認）' if out['structured_prices'] else '未確認')
                 out['status'] = 'metadata_read'
                 out['relevance_status'] = '見出し上の関連語あり（競合性未確認）' if out['rank_score'] else '見出しからは関連性未確認'
             else:
