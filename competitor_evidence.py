@@ -62,9 +62,9 @@ def extract(doc, raw_html=''):
         'publication_evidence': unique_dates,
         'public_description_excerpt': desc,
         'structured_prices': _extract_prices(doc.jsonld),
-        'paywall_status': 'æªç¢ºèªï¼å¬éæå ±ããææã»ç¡æãå¤å®ãã¦ãã¾ããï¼',
-        'description_source': 'HTML og:description/description' if desc else 'æªåå¾',
-        'evidence_limits': 'å¬éæ¥ã®åè£ã¯è¨äºå´ã¡ã¿ãã¼ã¿ã®ç³åã§ããç¬ç«æ¤è¨¼ã§ã¯ããã¾ãããå¬éä¾¡æ ¼ã®åè£ã¯JSON-LD Offerã®ã¿ãè²©å£²ä»¶æ°ã»åçã»å®éè¦ã¯æªç¢ºèªã'
+        'paywall_status': '\u672a\u78ba\u8a8d\uff08\u516c\u958b\u60c5\u5831\u304b\u3089\u6709\u6599\u30fb\u7121\u6599\u3092\u5224\u5b9a\u3057\u3066\u3044\u307e\u305b\u3093\uff09',
+        'description_source': 'HTML og:description/description' if desc else '\u672a\u53d6\u5f97',
+        'evidence_limits': '\u516c\u958b\u65e5\u306e\u5019\u88dc\u306f\u8a18\u4e8b\u5074\u30e1\u30bf\u30c7\u30fc\u30bf\u306e\u7533\u544a\u3067\u3042\u308a\u72ec\u7acb\u691c\u8a3c\u3067\u306f\u3042\u308a\u307e\u305b\u3093\u3002\u516c\u958b\u4fa1\u683c\u306e\u5019\u88dc\u306fJSON-LD Offer\u306e\u307f\u3002\u8ca9\u58f2\u4ef6\u6570\u30fb\u53ce\u76ca\u30fb\u5b9f\u9700\u8981\u306f\u672a\u78ba\u8a8d\u3002'
     }
 
 
@@ -84,7 +84,7 @@ def _extract_prices(jsonld):
         currency = str(obj.get('priceCurrency', '')).upper()
         if currency and not re.fullmatch(r'[A-Z]{3}', currency):
             continue
-        offers.append({'price': price, 'currency': currency or 'éè²¨æªè¨è¼', 'source': 'JSON-LD Offer', 'verification': 'åãã¼ã¸è¦ç¢ºèª'})
+        offers.append({'price': price, 'currency': currency or '\u901a\u8ca8\u672a\u8a18\u8f09', 'source': 'JSON-LD Offer', 'verification': '\u5143\u30da\u30fc\u30b8\u8981\u78ba\u8a8d'})
         if len(offers) >= 3:
             break
     return offers
