@@ -20,7 +20,7 @@ from supabase import create_client
 
 st.set_page_config(page_title='ZEROBOARD AI', page_icon='🧠', layout='wide')
 st.title('🧠 ZEROBOARD AI')
-st.caption('AI経営会議システム / Ver.42 RELEVANCE FIRST / PROFIT FIRST')
+st.caption('AI経営会議システム / Ver.43 COMPETITOR EVIDENCE / PROFIT FIRST')
 st.write('あなたがCEO。4人のAI役員が議論し、最後に議長AIが経営判断をまとめます。')
 st.divider()
 client = OpenAI(api_key=st.secrets['OPENAI_API_KEY'])
@@ -852,7 +852,7 @@ with tab_office:
                 st.session_state.ceo_topic_input=smart_market_search.meeting_brief(active_idea,active_result)
                 st.success('経営会議タブへ議題をセットしました。会議を開始するまではOpenAI API料金なし。')
     st.divider()
-    st.subheader('🧩 Ver.42 RELEVANCE FIRST — 商品候補に近い公開noteを優先調査')
+    st.subheader('🧩 Ver.43 COMPETITOR EVIDENCE — 関連noteの公開根拠を確認')
     st.caption('タグ掲載リンクから先に見出しの関連性を比較し、上位最大3件だけ記事ページを確認。通信最大4回・OpenAI API不要。見出し一致は購入需要や販売実績を証明しません。')
     pm_rows, pm_error = product_validation_rows(limit=30)
     pm_options = {'✍️ 手入力の企画案': None}
@@ -916,16 +916,25 @@ with tab_office:
                              'retrieved_at':article.get('retrieved_at_utc'),
                              'price':article.get('structured_prices') or '未確認',
                              'price_status':article.get('price_status'),
+                             'public_description_excerpt':article.get('public_description_excerpt') or '未取得',
+                             'publication_evidence':article.get('publication_evidence') or [],
+                             'paywall_status':article.get('paywall_status') or '未確認',
                              'purchase':'未確認','reviews':'未確認'})
             with st.expander(f"{ii}. {article_title}｜見出し暫定点 {article['rank_score']}（競合性未確認）"):
                 st.write('**一致したテーマ（見出しのみ）：**', ', '.join(article['matched_topics']) or 'なし')
                 st.write('**掲載リンクの見出し：**', article['headline_hint'])
-                st.write('**公開日：**', article.get('published_date_claim') or '未確認')
+                st.write('**公開日（ページ記載・未検証）：**', article.get('published_date_claim') or '未確認')
+                if article.get('publication_evidence'):
+                    with st.expander('📅 公開日の取得根拠'):
+                        st.json(article['publication_evidence'])
+                st.write('**公開説明（ページ掲載・最大240字）：**', article.get('public_description_excerpt') or '未取得')
+                st.write('**無料・有料の判定：**', article.get('paywall_status') or '未確認')
                 st.write('**取得日時：**', article.get('retrieved_at_utc') or '未確認')
                 st.write('**公開価格：**', article.get('price_status') or '未確認')
                 if article.get('structured_prices'): st.json(article['structured_prices'])
                 st.write('**購入実績・レビュー・売上：** 未確認')
                 st.write('**詳細取得の状態：**',article.get('status','未確認'))
+                st.caption(article.get('evidence_limits') or '元ページの目視確認が必要です。')
                 if article.get('url','').startswith('https://note.com/'):
                     st.link_button('🔗 原ページで価格・内容を目視確認',article['url'])
         if pm_report.get('tag_links_scored_positive',0) == 0:
@@ -936,7 +945,7 @@ with tab_office:
                 pm_active['title'], pm_active['reader'], pm_active['tag'], pm_report, compared)
             st.success('議題をセットしたで。CEOが経営会議を実行するまでOpenAI APIは使われません。')
         st.download_button('📥 今回の比較結果をJSONで保存', data=json.dumps({**pm_active,'matched':compared},ensure_ascii=False,indent=2,default=str),
-                           file_name='zeroboard_relevance_first.json',mime='application/json',key='v42_export')
+                           file_name='zeroboard_competitor_evidence.json',mime='application/json',key='v42_export')
     st.divider()
     st.subheader('📰 Ver.40 NOTE DIRECT SCOUT — 公開noteの記事を直接確認')
     st.caption('公開タグページから記事URLを取得し、最大3件のタイトル・公開日・構造化価格情報を確認。通信は最大4回、OpenAI API不要。表示結果はセッション内のみ。')
