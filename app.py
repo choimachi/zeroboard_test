@@ -17,6 +17,7 @@ import product_differentiation
 import value_design
 import product_blueprint
 import product_builder
+import quality_control
 import streamlit as st
 import streamlit.components.v1 as components
 from openai import OpenAI
@@ -24,7 +25,7 @@ from supabase import create_client
 
 st.set_page_config(page_title='ZEROBOARD AI', page_icon='🧠', layout='wide')
 st.title('🧠 ZEROBOARD AI')
-st.caption('AI経営会議システム / Ver.47 PRODUCT BUILDER / PROFIT FIRST')
+st.caption('AI経営会議システム / Ver.48 QUALITY CONTROL / PROFIT FIRST')
 st.write('あなたがCEO。4人のAI役員が議論し、最後に議長AIが経営判断をまとめます。')
 st.divider()
 client = OpenAI(api_key=st.secrets['OPENAI_API_KEY'])
@@ -1098,6 +1099,36 @@ with tab_office:
                         data=product_builder.package_zip(draft47, guide47, prompt47, example47),
                         file_name='zeroboard_ver47_product_draft.zip', mime='application/zip',
                         key='v47_package_download')
+                    st.divider()
+                    st.subheader('🛡️ Ver.48 QUALITY CONTROL — 教材草稿の簡易品質検査')
+                    st.caption('編集した教材本文・プロンプト・作例を、その場でルールベース検査します。追加API・外部通信なし。実際の再現検証や販売承認を意味しません。')
+                    if st.button('🔎 教材の5項目を品質チェック（API不要）', key='v48_review'):
+                        try:
+                            st.session_state['v48_report'] = quality_control.review(draft47, guide47, prompt47, example47)
+                            st.session_state['v48_snapshot'] = (guide47, prompt47, example47, bp46['created_at_utc'])
+                        except ValueError as exc:
+                            st.error(str(exc))
+                    report48 = st.session_state.get('v48_report')
+                    snapshot48 = (guide47, prompt47, example47, bp46['created_at_utc'])
+                    if report48 and st.session_state.get('v48_snapshot') == snapshot48:
+                        st.warning(report48['release_decision'])
+                        st.caption(report48['limitations'])
+                        for category48, name48 in quality_control.CHECK_LABELS.items():
+                            items48 = [f for f in report48['findings'] if f['category'] == category48]
+                            with st.expander(f'📋 {name48}｜指摘 {len(items48)}件', expanded=category48 == 'consistency'):
+                                if not items48:
+                                    st.info('この簡易ルールでは指摘なし。品質確認済みではありません。')
+                                for item48 in items48:
+                                    st.markdown(f"**[{item48['level']}] {item48['issue']}**")
+                                    st.caption('検出した根拠：' + item48['evidence'])
+                                    st.write('修正案：' + item48['action'])
+                        st.download_button('📦 品質検査レポートをZIP保存',
+                            data=quality_control.package_zip(report48),
+                            file_name='zeroboard_ver48_quality_report.zip',
+                            mime='application/zip', key='v48_zip')
+                        st.info('検査だけでは教材は書き換わりません。上の編集欄で修正したら再検査してください。')
+                    elif report48:
+                        st.caption('教材が変更されました。最新の内容で品質チェックを再実行してください。')
                     if st.button('🧠 教材ドラフトを経営会議の議題にセット（会議未実行）', key='v47_meeting'):
                         st.session_state.ceo_topic_input = product_builder.meeting_brief(draft47)
                         st.success('議題の入力欄にセットしました。会議実行・公開・販売・支出は行っていません。')
