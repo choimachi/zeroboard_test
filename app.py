@@ -18,6 +18,7 @@ import value_design
 import product_blueprint
 import product_builder
 import quality_control
+import revision_engine
 import streamlit as st
 import streamlit.components.v1 as components
 from openai import OpenAI
@@ -25,7 +26,7 @@ from supabase import create_client
 
 st.set_page_config(page_title='ZEROBOARD AI', page_icon='🧠', layout='wide')
 st.title('🧠 ZEROBOARD AI')
-st.caption('AI経営会議システム / Ver.48 QUALITY CONTROL / PROFIT FIRST')
+st.caption('AI経営会議システム / Ver.49 REVISION ENGINE / PROFIT FIRST')
 st.write('あなたがCEO。4人のAI役員が議論し、最後に議長AIが経営判断をまとめます。')
 st.divider()
 client = OpenAI(api_key=st.secrets['OPENAI_API_KEY'])
@@ -1129,6 +1130,45 @@ with tab_office:
                         st.info('検査だけでは教材は書き換わりません。上の編集欄で修正したら再検査してください。')
                     elif report48:
                         st.caption('教材が変更されました。最新の内容で品質チェックを再実行してください。')
+                    st.divider()
+                    st.subheader('🛠️ Ver.49 REVISION ENGINE — 修正案を比較・採用・再検査')
+                    st.caption('Ver.48の最新検査をもとに、ルールベースで修正候補を作成。追加APIなし。ボタンを押すまで元の編集本文を変更しません。')
+                    if st.button('📝 検査指摘から修正案を作る（API不要）', key='v49_propose',
+                                 disabled=not(report48 and st.session_state.get('v48_snapshot') == snapshot48)):
+                        st.session_state['v49_proposal'] = revision_engine.propose(
+                            draft47, guide47, prompt47, example47, report48['findings'])
+                        st.session_state['v49_snapshot'] = snapshot48
+                    proposal49 = st.session_state.get('v49_proposal')
+                    if proposal49 and st.session_state.get('v49_snapshot') == snapshot48:
+                        st.warning(proposal49['limitations'])
+                        st.write(f"提案された変更：{len(proposal49['changes'])}件")
+                        for change49 in proposal49['changes']:
+                            st.write('・'+change49)
+                        for field49,label49 in [('guide','教材本文'),('prompt','購入者向けプロンプト'),('example','架空の作例')]:
+                            with st.expander('🔎 '+label49+'の修正前後（差分）'):
+                                st.code(revision_engine.compare_text(proposal49['original'][field49],
+                                                                      proposal49['suggested'][field49]),language='diff')
+                        st.download_button('📦 修正案だけをZIPで保存',
+                            data=revision_engine.package_zip(proposal49),
+                            file_name='zeroboard_ver49_revision_proposal.zip',mime='application/zip',key='v49_export')
+                        def _adopt_v49():
+                            p49 = st.session_state.get('v49_proposal',{})
+                            if not p49: return
+                            st.session_state['v47_guide_editor'] = p49['suggested']['guide']
+                            st.session_state['v47_prompt_editor'] = p49['suggested']['prompt']
+                            st.session_state['v47_example_editor'] = p49['suggested']['example']
+                            st.session_state.pop('v48_report',None)
+                            st.session_state.pop('v48_snapshot',None)
+                            st.session_state.pop('v49_proposal',None)
+                            st.session_state.pop('v49_snapshot',None)
+                            st.session_state['v49_adopted_notice'] = True
+                        st.button('✅ 修正案を編集欄へ反映（CEOが確認して採用）',
+                                  key='v49_adopt',on_click=_adopt_v49,
+                                  disabled=not proposal49['changes'])
+                    elif proposal49:
+                        st.caption('本文が変更されたため、古い修正案は無効です。最新の検査から作り直してください。')
+                    if st.session_state.get('v49_adopted_notice'):
+                        st.success('修正案を編集欄に反映しました。上の教材本文を確認し、Ver.48で再検査してください。')
                     if st.button('🧠 教材ドラフトを経営会議の議題にセット（会議未実行）', key='v47_meeting'):
                         st.session_state.ceo_topic_input = product_builder.meeting_brief(draft47)
                         st.success('議題の入力欄にセットしました。会議実行・公開・販売・支出は行っていません。')
