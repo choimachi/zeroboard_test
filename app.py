@@ -14,6 +14,7 @@ import note_direct_scout
 import product_market_match
 import relevance_first
 import product_differentiation
+import value_design
 import streamlit as st
 import streamlit.components.v1 as components
 from openai import OpenAI
@@ -21,7 +22,7 @@ from supabase import create_client
 
 st.set_page_config(page_title='ZEROBOARD AI', page_icon='🧠', layout='wide')
 st.title('🧠 ZEROBOARD AI')
-st.caption('AI経営会議システム / Ver.44 PRODUCT DIFFERENTIATION / PROFIT FIRST')
+st.caption('AI経営会議システム / Ver.45 VALUE DESIGN / PROFIT FIRST')
 st.write('あなたがCEO。4人のAI役員が議論し、最後に議長AIが経営判断をまとめます。')
 st.divider()
 client = OpenAI(api_key=st.secrets['OPENAI_API_KEY'])
@@ -965,6 +966,55 @@ with tab_office:
             data=json.dumps(diff44, ensure_ascii=False, indent=2),
             file_name='zeroboard_product_differentiation.json',
             mime='application/json', key='v44_download')
+        st.divider()
+        st.subheader('🧱 Ver.45 VALUE DESIGN — 読後に完成できる商品を設計')
+        st.caption('Ver.44の競合公開情報を参考に、無料/有料構成を組み立てる設計案です。追加API/外部通信なし。制作・公開・販売はしません。')
+        v45_goal = st.text_input('購入した読者が最後に完成できるもの（編集可能）',
+                                 value='自分に合うAI活用の小さな試作品と7日間の行動計画',
+                                 key='v45_goal', max_chars=240)
+        v45_format = st.selectbox('商品形式', list(value_design.FORMATS), key='v45_format')
+        if st.button('📐 無料/有料構成を設計（API不要）', key='v45_build'):
+            try:
+                st.session_state['v45_plan'] = value_design.build(
+                    pm_active['title'], pm_active['reader'] or '想定読者未設定',
+                    v45_goal, v45_format, pm_report.get('articles', []))
+                st.session_state['v45_source_signature'] = (pm_active['title'], pm_active['reader'], pm_active['tag'])
+            except ValueError as e:
+                st.error(str(e))
+        plan45 = st.session_state.get('v45_plan')
+        signature45 = st.session_state.get('v45_source_signature')
+        if plan45 and signature45 == (pm_active['title'], pm_active['reader'], pm_active['tag']):
+            st.info('未承認の設計案です。購入需要・競合の販売実績・価格は確認されていません。')
+            st.write('**商品名：**', plan45['product_title'])
+            st.write('**想定読者：**', plan45['reader_hypothesis'])
+            st.write('**購入後の完成物（仮説）：**', plan45['buyer_outcome_hypothesis'])
+            cfree, cpaid = st.columns(2)
+            with cfree:
+                st.markdown('#### 🆓 無料部分')
+                for x in plan45['free_section']:
+                    st.markdown('**' + x['heading'] + '**')
+                    st.caption(x['deliverable'])
+            with cpaid:
+                st.markdown('#### 💎 有料部分（制作案）')
+                for x in plan45['paid_section']:
+                    st.markdown('**' + x['heading'] + '**')
+                    st.caption(x['deliverable'])
+            with st.expander('📎 購入者へ渡す付属物の制作候補'):
+                for x in plan45['attachments_hypothesis']: st.write('・' + x)
+            with st.expander('🧪 費用をかけない需要検証'):
+                for x in plan45['validation']: st.write('・' + x)
+            with st.expander('✅ 制作・販売前に確認すること'):
+                for x in plan45['acceptance_checks']: st.write('・' + x)
+            st.warning(plan45['limitations'])
+            st.download_button('📥 Ver.45の商品設計案をJSONで保存',
+                               data=json.dumps(plan45, ensure_ascii=False, indent=2),
+                               file_name='zeroboard_value_design_draft.json',
+                               mime='application/json', key='v45_download')
+            if st.button('🧠 商品設計案を経営会議の議題にセット（会議は未実行）', key='v45_meeting'):
+                st.session_state.ceo_topic_input = value_design.meeting_brief(plan45)
+                st.success('経営会議の入力欄へセットしました。会議・記事制作・公開・販売・支出は実行していません。')
+        elif plan45:
+            st.caption('前の商品候補の設計案があります。現在の商品で設計し直してください。')
         if pm_report.get('tag_links_scored_positive',0) == 0:
             st.warning('タグ内の記事見出しでは関連語を確認できませんでした。上位は掲載順の参考記事で、適切な競合と判定したわけではありません。')
         st.info('関連度は見出しに含まれる語句だけの暫定評価。本文、競合の価格、販売実績、実需要は未確認。')
