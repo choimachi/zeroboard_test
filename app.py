@@ -19,6 +19,7 @@ import product_blueprint
 import product_builder
 import quality_control
 import revision_engine
+import auto_workflow
 import streamlit as st
 import streamlit.components.v1 as components
 from openai import OpenAI
@@ -26,7 +27,7 @@ from supabase import create_client
 
 st.set_page_config(page_title='ZEROBOARD AI', page_icon='🧠', layout='wide')
 st.title('🧠 ZEROBOARD AI')
-st.caption('AI経営会議システム / Ver.49 REVISION ENGINE / PROFIT FIRST')
+st.caption('AI経営会議システム / Ver.50 AUTO WORKFLOW / PROFIT FIRST')
 st.write('あなたがCEO。4人のAI役員が議論し、最後に議長AIが経営判断をまとめます。')
 st.divider()
 client = OpenAI(api_key=st.secrets['OPENAI_API_KEY'])
@@ -762,6 +763,55 @@ with tab_research:
     st.caption('🛡️ 日次調査は見出しベースの仮説調査です。noteランキング・売上、本文照合、実需、著作物の利用許諾は検証していません。公開前にCEOが確認してください。')
 
 with tab_office:
+    st.subheader('🚀 Ver.50 AUTO WORKFLOW — 1回で教材草稿・品質検査まで（試作）')
+    st.caption('Ver.45→46→47→48→49→48を一括実行。外部検索・OpenAI API・公開・販売・決済なし。現段階はローカルルールによる下書きであり、AI社員の自律運営ではありません。')
+    with st.expander('⚙️ 自動実行する商品の条件', expanded=True):
+        auto_title = st.text_input('商品名', value='AIを使った副業入門ガイド', key='v50_title')
+        auto_reader = st.text_input('想定読者（仮説）', value='AI初心者', key='v50_reader')
+        auto_goal = st.text_input('購入者が完成させるもの（目標）', value='自分に合うAI活用の小さな試作品と7日間の行動計画', key='v50_goal')
+        auto_format = st.selectbox('商品形式', list(value_design.FORMATS), key='v50_format')
+        auto_project = st.selectbox('最初の試作品', list(product_blueprint.PROJECTS), key='v50_project')
+        auto_minutes = st.slider('1日の作業時間（分）', 10, 120, 30, 10, key='v50_minutes')
+        auto_notes = st.text_area('CEOの制作条件（任意）', key='v50_notes', max_chars=300)
+        auto_adopt = st.checkbox('ルールベースの修正案を自動で草稿に反映して再検査する（未承認のまま）', value=True, key='v50_auto_adopt')
+    st.warning('このボタンは新規の市場調査や本格的なAI執筆を実行しません。販売可否を判定しません。すべて未承認の教材ドラフトです。')
+    if st.button('🚀 教材の制作工程をまとめて実行（API不要）', key='v50_run'):
+        try:
+            cached = st.session_state.get('v42_result')
+            competitors = []
+            if cached and str(cached.get('title', '')).strip() == auto_title.strip():
+                competitors = cached.get('report', {}).get('articles', [])[:3]
+            st.session_state['v50_result'] = auto_workflow.run(
+                auto_title, auto_reader, auto_goal, auto_format, auto_project,
+                auto_minutes, auto_notes, competitors, auto_adopt)
+            st.success('一括処理が終了したで。結果はCEO確認待ち・未承認や。')
+        except (ValueError, KeyError, TypeError) as exc:
+            st.error('処理を停止しました：' + str(exc))
+    auto_result = st.session_state.get('v50_result')
+    if auto_result:
+        st.info('前回実行した一括ドラフトです。商品条件を変更した場合は再実行してください。')
+        c1, c2, c3 = st.columns(3)
+        c1.metric('修正前の指摘', auto_result['summary']['initial_findings'])
+        c2.metric('修正提案', auto_result['summary']['revision_suggestions'])
+        c3.metric('再検査の指摘', auto_result['summary']['final_findings'])
+        st.write('**商品：**', auto_result['title'])
+        st.write('**工程：** 商品構成 → 7日間設計図 → 教材草稿 → 初回検査 → 修正提案 → 再検査 → CEO確認')
+        with st.expander('📖 最終教材の草稿を見る（未承認）'):
+            st.text_area('一括処理で生成した教材', auto_result['final_text']['guide'], height=320, key='v50_preview_guide')
+        with st.expander('💬 プロンプト・作例を見る（未承認）'):
+            st.text_area('購入者向けプロンプト草稿', auto_result['final_text']['prompt'], height=180, key='v50_preview_prompt')
+            st.text_area('架空の作例', auto_result['final_text']['example'], height=220, key='v50_preview_example')
+        with st.expander('📋 品質検査の詳細と未解決事項'):
+            for finding in auto_result['second_review']['findings']:
+                st.write('・[' + finding['level'] + '] ' + finding['issue'])
+                st.caption(finding['action'])
+        st.warning(auto_result['limitations'])
+        st.download_button('📦 CEO確認用の教材・検査結果をZIP保存',
+            data=auto_workflow.package_zip(auto_result),
+            file_name='zeroboard_ver50_ceo_review_DRAFT.zip',
+            mime='application/zip', key='v50_download')
+        st.caption('CEOによる商品化・出品の承認ボタンはまだ実装していません。noteへの自動投稿も行いません。')
+    st.divider()
     st.subheader('🔭 Ver.37 EVIDENCE SCOUT — 競合・購入根拠の選別（API不要）')
     st.caption('最近の保存済み市場調査から別の候補を比較。スコアは企画情報の充実度で、販売確率ではありません。購買根拠のない候補を制作承認しません。')
     scout_reports,scout_report_error=daily_research_rows(limit=14)
