@@ -20,6 +20,7 @@ import product_builder
 import quality_control
 import revision_engine
 import auto_workflow
+import ceo_approval
 import streamlit as st
 import streamlit.components.v1 as components
 from openai import OpenAI
@@ -27,7 +28,7 @@ from supabase import create_client
 
 st.set_page_config(page_title='ZEROBOARD AI', page_icon='🧠', layout='wide')
 st.title('🧠 ZEROBOARD AI')
-st.caption('AI経営会議システム / Ver.50 AUTO WORKFLOW / PROFIT FIRST')
+st.caption('AI経営会議システム / Ver.51 CEO APPROVAL DESK / AUTO WORKFLOW / PROFIT FIRST')
 st.write('あなたがCEO。4人のAI役員が議論し、最後に議長AIが経営判断をまとめます。')
 st.divider()
 client = OpenAI(api_key=st.secrets['OPENAI_API_KEY'])
@@ -810,7 +811,49 @@ with tab_office:
             data=auto_workflow.package_zip(auto_result),
             file_name='zeroboard_ver50_ceo_review_DRAFT.zip',
             mime='application/zip', key='v50_download')
-        st.caption('CEOによる商品化・出品の承認ボタンはまだ実装していません。noteへの自動投稿も行いません。')
+        st.caption('Ver.51ではCEOが「出品準備へ進むか」を判断できます。公開・販売・決済の承認とは別です。')
+        st.divider()
+        st.subheader('👑 Ver.51 CEO APPROVAL DESK — 制作草稿の経営判断')
+        st.caption('Ver.50の草稿1件を確認し、承認／修正指示／保留／却下を記録します。承認は出品準備に進む判断だけで、noteへの出品・課金・公開は行いません。')
+        current_draft_id = ceo_approval.fingerprint(auto_result)
+        if 'v51_decisions' not in st.session_state:
+            st.session_state['v51_decisions'] = []
+        history_for_draft = [x for x in st.session_state['v51_decisions'] if x.get('draft_id_sha256') == current_draft_id]
+        st.code(current_draft_id[:16], language=None)
+        st.caption('上の識別子は今回の草稿の指紋。教材を再生成したら別の草稿として扱います。')
+        if history_for_draft:
+            recent_decision = history_for_draft[-1]
+            st.info('この草稿の直近のCEO判断：' + recent_decision['decision_label'] + ' ／ ' + recent_decision['recorded_at_utc'])
+        remaining = auto_result.get('second_review', {}).get('findings') or []
+        st.warning(f'簡易検査の未解決指摘：{len(remaining)}件。加えて購入需要・事実・権利・価格・実用性は未確認です。品質保証や販売許可ではありません。')
+        with st.form('v51_ceo_decision_form'):
+            chosen = st.radio('CEOの判断', options=list(ceo_approval.DECISIONS),
+                format_func=lambda d: ceo_approval.DECISIONS[d], key='v51_choice')
+            explanation = st.text_area('理由・修正指示（修正／却下では必須）', height=110, max_chars=2000,
+                placeholder='例：購入者の入力例が不足しているため、手順と完成例を増やす', key='v51_reason')
+            acknowledged = st.checkbox('未解決指摘や未検証の販売条件があることを理解した（出品準備への承認時は必須）', key='v51_ack')
+            save_decision = st.form_submit_button('📋 この草稿へのCEO判断を記録（外部処理なし）')
+        if save_decision:
+            try:
+                record = ceo_approval.create_record(auto_result, chosen, explanation, acknowledged)
+                st.session_state['v51_decisions'].append(record)
+                st.success('CEO判断をこの画面セッションに記録しました。公開や販売は行っていません。')
+                st.rerun()
+            except ValueError as exc:
+                st.error(str(exc))
+        st.caption('記録は現在のStreamlitセッション内だけに保持されます。画面を閉じたり再起動すると失われる場合があるため、下からJSONを保存してください。Supabaseへの保存はまだ未実装です。')
+        if st.session_state['v51_decisions']:
+            with st.expander('📚 CEO判断履歴（このセッションのみ）'):
+                for i, decision_record in enumerate(reversed(st.session_state['v51_decisions'][-20:]), 1):
+                    st.write(f"**{i}. {decision_record['title']}｜{decision_record['decision_label']}**")
+                    st.caption(decision_record['recorded_at_utc'] + ' / 草稿ID ' + decision_record['draft_id_sha256'][:12])
+                    if decision_record.get('reason'):
+                        st.write(decision_record['reason'])
+                    st.write('次の対応：' + decision_record['next_step'])
+            st.download_button('📥 CEO判断履歴をJSON保存（バックアップ）',
+                data=ceo_approval.export_json(st.session_state['v51_decisions']),
+                file_name='zeroboard_ver51_ceo_decisions.json', mime='application/json',
+                key='v51_export_decisions')
     st.divider()
     st.subheader('🔭 Ver.37 EVIDENCE SCOUT — 競合・購入根拠の選別（API不要）')
     st.caption('最近の保存済み市場調査から別の候補を比較。スコアは企画情報の充実度で、販売確率ではありません。購買根拠のない候補を制作承認しません。')
