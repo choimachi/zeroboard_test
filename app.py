@@ -21,6 +21,7 @@ import quality_control
 import revision_engine
 import auto_workflow
 import ceo_approval
+import feedback_loop
 import streamlit as st
 import streamlit.components.v1 as components
 from openai import OpenAI
@@ -28,7 +29,7 @@ from supabase import create_client
 
 st.set_page_config(page_title='ZEROBOARD AI', page_icon='🧠', layout='wide')
 st.title('🧠 ZEROBOARD AI')
-st.caption('AI経営会議システム / Ver.51 CEO APPROVAL DESK / AUTO WORKFLOW / PROFIT FIRST')
+st.caption('AI経営会議システム / Ver.52 FEEDBACK LOOP / CEO APPROVAL DESK / AUTO WORKFLOW / PROFIT FIRST')
 st.write('あなたがCEO。4人のAI役員が議論し、最後に議長AIが経営判断をまとめます。')
 st.divider()
 client = OpenAI(api_key=st.secrets['OPENAI_API_KEY'])
@@ -854,6 +855,50 @@ with tab_office:
                 data=ceo_approval.export_json(st.session_state['v51_decisions']),
                 file_name='zeroboard_ver51_ceo_decisions.json', mime='application/json',
                 key='v51_export_decisions')
+    if auto_result:
+        st.divider()
+        st.subheader('🔁 Ver.52 FEEDBACK LOOP — CEO指示から修正版を再提出（試作）')
+        st.caption('CEOが記録した修正指示を、対応済みのルールでのみ草稿に反映。未対応の自由文は未対応と表示。API・外部通信・公開・販売なし。')
+        revision_records = [r for r in st.session_state.get('v51_decisions', [])
+                            if r.get('decision') == 'revise'
+                            and r.get('draft_id_sha256') == ceo_approval.fingerprint(auto_result)]
+        if not revision_records:
+            st.info('この草稿への修正指示がまだありません。Ver.51で「修正指示」を記録すると、ここから再制作できます。')
+        else:
+            target_record = revision_records[-1]
+            st.write('**CEOの修正指示：**', target_record.get('reason', ''))
+            current_id = ceo_approval.fingerprint(auto_result)
+            preview_key = 'v52_preview'
+            preview = st.session_state.get(preview_key)
+            if preview and (preview.get('parent_draft_id') != current_id
+                            or preview.get('instruction') != target_record.get('reason')):
+                st.session_state.pop(preview_key, None)
+                preview = None
+            if st.button('🔁 修正案を作り再検査する（API不要・未承認）', key='v52_make_preview'):
+                try:
+                    st.session_state[preview_key] = feedback_loop.preview_revision(auto_result, target_record)
+                    st.rerun()
+                except (ValueError, TypeError, KeyError) as exc:
+                    st.error('修正案を作成できませんでした：' + str(exc))
+            if preview:
+                if preview['status'] != 'PROPOSAL_READY_UNAPPROVED':
+                    st.warning(preview['message'])
+                else:
+                    st.success('CEO修正指示に基づく参考修正案ができました。販売品質は未確認です。')
+                    x, y = st.columns(2)
+                    x.metric('修正前の簡易指摘', preview['before_findings'])
+                    y.metric('修正後の簡易指摘', preview['after_findings'])
+                    st.caption('指摘の件数は簡易ルールによるもので品質・売上を保証しません。')
+                    for change in preview['changes']:
+                        st.write('・' + change)
+                    with st.expander('🔍 作例の修正差分と追加内容を確認'):
+                        st.code(preview['diff'], language='diff')
+                    if st.button('📋 この修正版を新しい未承認草稿として再提出（旧草稿は別ID）', key='v52_submit_revision'):
+                        st.session_state['v50_result'] = preview['proposed_draft']
+                        st.session_state.pop(preview_key, None)
+                        st.success('修正版を別の草稿として再提出しました。Ver.51で新しい草稿IDを確認して再審査してください。')
+                        st.rerun()
+                    st.caption('旧草稿へのCEO判断記録は残ります。修正版は自動承認されません。')
     st.divider()
     st.subheader('🔭 Ver.37 EVIDENCE SCOUT — 競合・購入根拠の選別（API不要）')
     st.caption('最近の保存済み市場調査から別の候補を比較。スコアは企画情報の充実度で、販売確率ではありません。購買根拠のない候補を制作承認しません。')
