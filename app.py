@@ -22,6 +22,8 @@ import revision_engine
 import auto_workflow
 import ceo_approval
 import feedback_loop
+import company_memory
+import hmac
 import streamlit as st
 import streamlit.components.v1 as components
 from openai import OpenAI
@@ -29,7 +31,7 @@ from supabase import create_client
 
 st.set_page_config(page_title='ZEROBOARD AI', page_icon='🧠', layout='wide')
 st.title('🧠 ZEROBOARD AI')
-st.caption('AI経営会議システム / Ver.52 FEEDBACK LOOP / CEO APPROVAL DESK / AUTO WORKFLOW / PROFIT FIRST')
+st.caption('AI経営会議システム / Ver.53 COMPANY MEMORY / FEEDBACK LOOP / CEO APPROVAL DESK / AUTO WORKFLOW / PROFIT FIRST')
 st.write('あなたがCEO。4人のAI役員が議論し、最後に議長AIが経営判断をまとめます。')
 st.divider()
 client = OpenAI(api_key=st.secrets['OPENAI_API_KEY'])
@@ -765,6 +767,62 @@ with tab_research:
     st.caption('🛡️ 日次調査は見出しベースの仮説調査です。noteランキング・売上、本文照合、実需、著作物の利用許諾は検証していません。公開前にCEOが確認してください。')
 
 with tab_office:
+    st.subheader('🗄️ Ver.53 COMPANY MEMORY — CEO専用の草稿・判断履歴')
+    st.caption('Supabase保存・復元はCEO管理用パスワードが必要です。勝手に公開・販売・API実行しません。')
+    memory_secret = str(st.secrets.get('CEO_ADMIN_PASSWORD') or '')
+    service_memory_key = str(st.secrets.get('SUPABASE_SERVICE_ROLE_KEY') or '')
+    memory_ready = bool(memory_secret and service_memory_key and len(memory_secret) >= 12)
+    if not memory_ready:
+        st.warning('Ver.53保存機能は未設定です。Supabase SQLの実行と、Streamlit Secretsに CEO_ADMIN_PASSWORD（12文字以上）および SUPABASE_SERVICE_ROLE_KEY が必要です。')
+    if 'v53_authenticated' not in st.session_state:
+        st.session_state['v53_authenticated'] = False
+    if memory_ready and not st.session_state['v53_authenticated']:
+        with st.form('v53_login'):
+            admin_password = st.text_input('CEO管理用パスワード', type='password')
+            login_v53 = st.form_submit_button('🔐 保存・復元機能のロックを解除')
+        if login_v53:
+            if hmac.compare_digest(admin_password, memory_secret):
+                st.session_state['v53_authenticated'] = True
+                st.rerun()
+            else:
+                st.error('パスワードが一致しません。')
+    memory_db = None
+    if memory_ready and st.session_state.get('v53_authenticated'):
+        try:
+            memory_db = create_client(st.secrets['SUPABASE_URL'], service_memory_key)
+        except Exception as exc:
+            st.error('Ver.53のDB接続に失敗しました。'); st.caption(str(exc))
+        if st.button('🔒 保存・復元機能をロック', key='v53_lock'):
+            st.session_state['v53_authenticated'] = False
+            st.session_state.pop('v53_rows', None)
+            st.rerun()
+    if memory_db is not None:
+        st.success('CEO専用保存が利用可能です。セッションの共有やブラウザの放置に注意してください。')
+        if st.button('📚 保存済み草稿一覧を読み込む', key='v53_list'):
+            try:
+                st.session_state['v53_rows'] = company_memory.list_drafts(memory_db)
+            except Exception as exc:
+                st.error('一覧を取得できませんでした。SQL・権限を確認してください。'); st.caption(str(exc))
+        rows53 = st.session_state.get('v53_rows') or []
+        if rows53:
+            picked53 = st.selectbox('復元する草稿', rows53,
+                format_func=lambda r: str(r.get('saved_at',''))[:16]+'｜'+str(r.get('title',''))+'｜'+r['draft_id'][:10],
+                key='v53_pick')
+            if st.button('📂 この草稿とCEO判断を復元（現在の編集内容を置き換え）', key='v53_restore'):
+                try:
+                    restored = company_memory.load_draft(memory_db, picked53['draft_id'])
+                    history = company_memory.load_decisions(memory_db, picked53['draft_id'])
+                    st.session_state['v50_result'] = restored
+                    existing = [x for x in st.session_state.get('v51_decisions', []) if x.get('draft_id_sha256') != picked53['draft_id']]
+                    st.session_state['v51_decisions'] = existing + history
+                    st.session_state.pop('v52_preview', None)
+                    st.success('保存した草稿とCEO判断を復元しました。公開・販売は行っていません。')
+                    st.rerun()
+                except Exception as exc:
+                    st.error('復元に失敗しました。'); st.caption(str(exc))
+        elif 'v53_rows' in st.session_state:
+            st.info('保存済み草稿はまだありません。')
+    st.divider()
     st.subheader('🚀 Ver.50 AUTO WORKFLOW — 1回で教材草稿・品質検査まで（試作）')
     st.caption('Ver.45→46→47→48→49→48を一括実行。外部検索・OpenAI API・公開・販売・決済なし。現段階はローカルルールによる下書きであり、AI社員の自律運営ではありません。')
     with st.expander('⚙️ 自動実行する商品の条件', expanded=True):
@@ -783,14 +841,31 @@ with tab_office:
             competitors = []
             if cached and str(cached.get('title', '')).strip() == auto_title.strip():
                 competitors = cached.get('report', {}).get('articles', [])[:3]
-            st.session_state['v50_result'] = auto_workflow.run(
+            completed_draft = auto_workflow.run(
                 auto_title, auto_reader, auto_goal, auto_format, auto_project,
                 auto_minutes, auto_notes, competitors, auto_adopt)
-            st.success('一括処理が終了したで。結果はCEO確認待ち・未承認や。')
+            st.session_state['v50_result'] = completed_draft
+            if memory_db is not None:
+                try:
+                    company_memory.save_draft(memory_db, completed_draft)
+                    st.session_state.pop('v53_rows', None)
+                    st.success('一括処理を完了し、未承認草稿をSupabaseに保存しました。')
+                except Exception as exc:
+                    st.warning('草稿は画面上にありますが、Supabaseへの保存は失敗しました。'); st.caption(str(exc))
+            else:
+                st.success('一括処理が終了したで。結果はCEO確認待ち・未承認や（DB未保存）。')
         except (ValueError, KeyError, TypeError) as exc:
             st.error('処理を停止しました：' + str(exc))
     auto_result = st.session_state.get('v50_result')
     if auto_result:
+        if memory_db is not None:
+            if st.button('💾 この未承認草稿をSupabaseに保存', key='v53_save_draft'):
+                try:
+                    new_id = company_memory.save_draft(memory_db, auto_result)
+                    st.success('草稿を保存しました：'+new_id[:12]+'（承認・公開はしていません）')
+                    st.session_state.pop('v53_rows', None)
+                except Exception as exc:
+                    st.error('草稿を保存できませんでした。'); st.caption(str(exc))
         st.info('前回実行した一括ドラフトです。商品条件を変更した場合は再実行してください。')
         c1, c2, c3 = st.columns(3)
         c1.metric('修正前の指摘', auto_result['summary']['initial_findings'])
@@ -837,12 +912,17 @@ with tab_office:
         if save_decision:
             try:
                 record = ceo_approval.create_record(auto_result, chosen, explanation, acknowledged)
+                if memory_db is not None:
+                    company_memory.save_decision(memory_db, auto_result, record)
+                    st.success('CEO判断と草稿をSupabaseに保存しました。公開や販売は行っていません。')
+                    st.session_state.pop('v53_rows', None)
+                else:
+                    st.warning('CEO判断は一時保存のみです。永続保存にはVer.53のロック解除が必要です。')
                 st.session_state['v51_decisions'].append(record)
-                st.success('CEO判断をこの画面セッションに記録しました。公開や販売は行っていません。')
                 st.rerun()
-            except ValueError as exc:
-                st.error(str(exc))
-        st.caption('記録は現在のStreamlitセッション内だけに保持されます。画面を閉じたり再起動すると失われる場合があるため、下からJSONを保存してください。Supabaseへの保存はまだ未実装です。')
+            except Exception as exc:
+                st.error('CEO判断を記録できませんでした：' + str(exc))
+        st.caption('Ver.53のロック解除中はSupabaseに保存できます。未解除の場合はセッション内のみで失われることがあるため、JSONもバックアップしてください。')
         if st.session_state['v51_decisions']:
             with st.expander('📚 CEO判断履歴（このセッションのみ）'):
                 for i, decision_record in enumerate(reversed(st.session_state['v51_decisions'][-20:]), 1):
@@ -894,6 +974,14 @@ with tab_office:
                     with st.expander('🔍 作例の修正差分と追加内容を確認'):
                         st.code(preview['diff'], language='diff')
                     if st.button('📋 この修正版を新しい未承認草稿として再提出（旧草稿は別ID）', key='v52_submit_revision'):
+                        if memory_db is not None:
+                            try:
+                                company_memory.save_draft(memory_db, auto_result)
+                                company_memory.save_draft(memory_db, preview['proposed_draft'])
+                                st.session_state.pop('v53_rows', None)
+                            except Exception as exc:
+                                st.error('修正版のDB保存に失敗。再提出を停止しました：' + str(exc))
+                                st.stop()
                         st.session_state['v50_result'] = preview['proposed_draft']
                         st.session_state.pop(preview_key, None)
                         st.success('修正版を別の草稿として再提出しました。Ver.51で新しい草稿IDを確認して再審査してください。')
