@@ -15,6 +15,7 @@ import product_market_match
 import relevance_first
 import product_differentiation
 import value_design
+import product_blueprint
 import streamlit as st
 import streamlit.components.v1 as components
 from openai import OpenAI
@@ -22,7 +23,7 @@ from supabase import create_client
 
 st.set_page_config(page_title='ZEROBOARD AI', page_icon='🧠', layout='wide')
 st.title('🧠 ZEROBOARD AI')
-st.caption('AI経営会議システム / Ver.45 VALUE DESIGN / PROFIT FIRST')
+st.caption('AI経営会議システム / Ver.46 PRODUCT BLUEPRINT / PROFIT FIRST')
 st.write('あなたがCEO。4人のAI役員が議論し、最後に議長AIが経営判断をまとめます。')
 st.divider()
 client = OpenAI(api_key=st.secrets['OPENAI_API_KEY'])
@@ -1013,6 +1014,59 @@ with tab_office:
             if st.button('🧠 商品設計案を経営会議の議題にセット（会議は未実行）', key='v45_meeting'):
                 st.session_state.ceo_topic_input = value_design.meeting_brief(plan45)
                 st.success('経営会議の入力欄へセットしました。会議・記事制作・公開・販売・支出は実行していません。')
+            st.divider()
+            st.subheader('🧩 Ver.46 PRODUCT BLUEPRINT — 7日間で完成する試作品を設計')
+            st.caption('Ver.45の未承認商品案から、制作工程・ワークシート項目・品質基準を整理します。追加API/通信なし。実物制作・公開・販売はしません。')
+            v46_project = st.selectbox('最初に完成させる試作品の種類',
+                list(product_blueprint.PROJECTS), key='v46_project')
+            v46_minutes = st.slider('1日に使う作業時間（分・目安）', 10, 120, 30, 10, key='v46_minutes')
+            v46_notes = st.text_area('CEOからの追加条件（任意）', key='v46_notes',
+                placeholder='例：スマホだけで作れる工程を優先する', max_chars=300)
+            if st.button('🧩 7日間の商品設計図を作成（API不要）', key='v46_build'):
+                try:
+                    st.session_state['v46_blueprint'] = product_blueprint.build(
+                        plan45, v46_project, v46_minutes, v46_notes)
+                    st.session_state['v46_signature'] = (
+                        pm_active['title'], pm_active['reader'], pm_active['tag'],
+                        plan45['created_at_utc'])
+                except ValueError as exc:
+                    st.error(str(exc))
+            bp46 = st.session_state.get('v46_blueprint')
+            sig46 = (pm_active['title'], pm_active['reader'], pm_active['tag'],
+                     plan45['created_at_utc'])
+            if bp46 and st.session_state.get('v46_signature') == sig46:
+                st.info('制作前の設計図（未承認）。教材本文・付属ファイル・商品販売はまだ実行していません。')
+                st.write('**試作品：**', bp46['selected_project'])
+                st.write('**購入者が受け取る具体的な完成物（設計案）：**', bp46['deliverable_specification'])
+                st.write('**所要時間の目安：**', f"{bp46['daily_minutes']}分×7日")
+                with st.expander('🧾 最初に必要な入力情報', expanded=True):
+                    for field in bp46['required_inputs']: st.write('・'+field)
+                    st.caption(bp46['example_outline'])
+                st.markdown('#### 📅 7日間の制作手順（仮）')
+                for day46 in bp46['seven_day_plan']:
+                    with st.expander(f"Day {day46['day']}｜{day46['task']}",
+                                     expanded=day46['day']==1):
+                        st.write('作業：',day46['task'])
+                        st.write('その日の確認：',day46['checkpoint'])
+                        st.caption('記録：'+day46['evidence_of_completion'])
+                with st.expander('📝 ワークシートの入力項目（設計案）'):
+                    for field in bp46['worksheet_fields']:
+                        st.write('**'+field['name']+'**：'+field['example'])
+                    st.caption('ここに表示しているのは項目案です。配布ファイルの実物は未作成です。')
+                with st.expander('✅ 完成の品質基準'):
+                    for item in bp46['quality_gate']: st.write('・'+item)
+                with st.expander('🧪 無料で反応を確かめる手順'):
+                    for item in bp46['free_preview_test']: st.write('・'+item)
+                st.warning(bp46['limitations'])
+                st.download_button('📥 Ver.46の商品設計図をJSON保存',
+                    data=json.dumps(bp46, ensure_ascii=False, indent=2),
+                    file_name='zeroboard_product_blueprint_draft.json',
+                    mime='application/json', key='v46_download')
+                if st.button('🧠 設計図を経営会議の議題にセット（会議未実行）', key='v46_meeting'):
+                    st.session_state.ceo_topic_input = product_blueprint.meeting_brief(bp46)
+                    st.success('会議の入力欄にセットしました。制作・販売・公開・支出は実行していません。')
+            elif bp46:
+                st.caption('別のVer.45設計案に対応した設計図です。現在の商品で設計し直してください。')
         elif plan45:
             st.caption('前の商品候補の設計案があります。現在の商品で設計し直してください。')
         if pm_report.get('tag_links_scored_positive',0) == 0:
