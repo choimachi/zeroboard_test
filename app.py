@@ -16,6 +16,7 @@ import relevance_first
 import product_differentiation
 import value_design
 import product_blueprint
+import product_builder
 import streamlit as st
 import streamlit.components.v1 as components
 from openai import OpenAI
@@ -23,7 +24,7 @@ from supabase import create_client
 
 st.set_page_config(page_title='ZEROBOARD AI', page_icon='🧠', layout='wide')
 st.title('🧠 ZEROBOARD AI')
-st.caption('AI経営会議システム / Ver.46 PRODUCT BLUEPRINT / PROFIT FIRST')
+st.caption('AI経営会議システム / Ver.47 PRODUCT BUILDER / PROFIT FIRST')
 st.write('あなたがCEO。4人のAI役員が議論し、最後に議長AIが経営判断をまとめます。')
 st.divider()
 client = OpenAI(api_key=st.secrets['OPENAI_API_KEY'])
@@ -1065,6 +1066,43 @@ with tab_office:
                 if st.button('🧠 設計図を経営会議の議題にセット（会議未実行）', key='v46_meeting'):
                     st.session_state.ceo_topic_input = product_blueprint.meeting_brief(bp46)
                     st.success('会議の入力欄にセットしました。制作・販売・公開・支出は実行していません。')
+                st.divider()
+                st.subheader('🛠️ Ver.47 PRODUCT BUILDER — 実際に編集できる教材ドラフト')
+                st.caption('Ver.46の設計図をもとに、教材の草稿・プロンプト・架空の例・CSVワークシートを作成します。追加API/外部通信なし。実際のAI実行や公開・販売はしません。')
+                if st.button('🛠️ 教材ドラフトと付属物を作成（API不要）', key='v47_build'):
+                    try:
+                        st.session_state['v47_assets'] = product_builder.build(bp46)
+                        st.session_state['v47_signature'] = bp46['created_at_utc']
+                        for key47 in ('v47_guide_editor', 'v47_prompt_editor', 'v47_example_editor'):
+                            st.session_state.pop(key47, None)
+                    except ValueError as exc:
+                        st.error(str(exc))
+                draft47 = st.session_state.get('v47_assets')
+                if draft47 and st.session_state.get('v47_signature') == bp46['created_at_utc']:
+                    st.warning(draft47['limitations'])
+                    st.markdown('#### 📖 教材本文のたたき台（編集可能）')
+                    guide47 = st.text_area('教材構成・手順', value=draft47['guide_markdown'],
+                        height=360, key='v47_guide_editor')
+                    st.markdown('#### 💬 コピーして試せるAIへの指示文（編集可能）')
+                    prompt47 = st.text_area('購入者向けプロンプト', value=draft47['copyable_prompt'],
+                        height=230, key='v47_prompt_editor')
+                    st.markdown('#### 📝 架空の作例（編集可能）')
+                    example47 = st.text_area('作例・利用上の注意', value=draft47['fictional_example'],
+                        height=230, key='v47_example_editor')
+                    with st.expander('📋 ワークシートの項目（CSVで配布可能）'):
+                        st.dataframe(draft47['worksheet_rows'], use_container_width=True)
+                    with st.expander('✅ 実販売前に人間が確認すること'):
+                        for item47 in draft47['verification_tasks']:
+                            st.write('・' + item47)
+                    st.download_button('📦 編集内容を教材ドラフトZIPで保存',
+                        data=product_builder.package_zip(draft47, guide47, prompt47, example47),
+                        file_name='zeroboard_ver47_product_draft.zip', mime='application/zip',
+                        key='v47_package_download')
+                    if st.button('🧠 教材ドラフトを経営会議の議題にセット（会議未実行）', key='v47_meeting'):
+                        st.session_state.ceo_topic_input = product_builder.meeting_brief(draft47)
+                        st.success('議題の入力欄にセットしました。会議実行・公開・販売・支出は行っていません。')
+                elif draft47:
+                    st.caption('Ver.46の設計図を更新しました。教材ドラフトを作り直してください。')
             elif bp46:
                 st.caption('別のVer.45設計案に対応した設計図です。現在の商品で設計し直してください。')
         elif plan45:
