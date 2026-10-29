@@ -814,6 +814,11 @@ with tab_office:
                     restored = company_memory.load_draft(memory_db, picked53['draft_id'])
                     history = company_memory.load_decisions(memory_db, picked53['draft_id'])
                     st.session_state['v50_result'] = restored
+                    st.session_state['v54_2_restored_id'] = picked53['draft_id']
+                    # Clear previously mounted text-area values. Otherwise Streamlit can show
+                    # the prior draft after the underlying restored draft changes.
+                    for widget_key in ('v50_preview_guide', 'v50_preview_prompt', 'v50_preview_example'):
+                        st.session_state.pop(widget_key, None)
                     existing = [x for x in st.session_state.get('v51_decisions', []) if x.get('draft_id_sha256') != picked53['draft_id']]
                     st.session_state['v51_decisions'] = existing + history
                     st.session_state.pop('v52_preview', None)
@@ -859,6 +864,16 @@ with tab_office:
             st.error('処理を停止しました：' + str(exc))
     auto_result = st.session_state.get('v50_result')
     if auto_result:
+        current_draft_id = ceo_approval.fingerprint(auto_result)
+        revision_meta = auto_result.get('ai_revision') or {}
+        if revision_meta:
+            st.success('現在表示中：AI修正版の未承認草稿（Ver.54.1）｜草稿ID：' + current_draft_id[:12])
+            st.caption('元草稿ID：' + str(revision_meta.get('parent_draft_id_sha256') or '不明')[:12]
+                       + '｜AI修正内容はこの草稿の本文に保存されています。AI再実行は不要です。')
+        else:
+            st.info('現在表示中：通常の草稿（AI修正履歴なし）｜草稿ID：' + current_draft_id[:12])
+        if st.session_state.get('v54_2_restored_id') == current_draft_id:
+            st.caption('📂 Supabaseから復元した草稿を表示しています。')
         if memory_db is not None:
             if st.button('💾 この未承認草稿をSupabaseに保存', key='v53_save_draft'):
                 try:
@@ -875,10 +890,10 @@ with tab_office:
         st.write('**商品：**', auto_result['title'])
         st.write('**工程：** 商品構成 → 7日間設計図 → 教材草稿 → 初回検査 → 修正提案 → 再検査 → CEO確認')
         with st.expander('📖 最終教材の草稿を見る（未承認）'):
-            st.text_area('一括処理で生成した教材', auto_result['final_text']['guide'], height=320, key='v50_preview_guide')
+            st.text_area('一括処理で生成した教材', value=auto_result['final_text']['guide'], height=320, key='v50_preview_guide_'+current_draft_id, disabled=True)
         with st.expander('💬 プロンプト・作例を見る（未承認）'):
-            st.text_area('購入者向けプロンプト草稿', auto_result['final_text']['prompt'], height=180, key='v50_preview_prompt')
-            st.text_area('架空の作例', auto_result['final_text']['example'], height=220, key='v50_preview_example')
+            st.text_area('購入者向けプロンプト草稿', value=auto_result['final_text']['prompt'], height=180, key='v50_preview_prompt_'+current_draft_id, disabled=True)
+            st.text_area('架空の作例', value=auto_result['final_text']['example'], height=220, key='v50_preview_example_'+current_draft_id, disabled=True)
         with st.expander('📋 品質検査の詳細と未解決事項'):
             for finding in auto_result['second_review']['findings']:
                 st.write('・[' + finding['level'] + '] ' + finding['issue'])
@@ -990,7 +1005,7 @@ with tab_office:
                     st.caption('旧草稿へのCEO判断記録は残ります。修正版は自動承認されません。')
     if auto_result:
         st.divider()
-        st.subheader('🤖 Ver.54.1 AI REVISION AGENT — CEO指示をAIが編集（有料API・試作）')
+        st.subheader('🤖 Ver.54.2 AI REVISION AGENT — 草稿表示・復元修正（有料API・試作）')
         st.caption('CEOの明示操作でOpenAI APIを1回呼び出します。料金が発生する可能性があります。月額上限を保証する機能ではありません。外部公開・販売・自動承認なし。')
         if memory_db is None:
             st.warning('Ver.54はCEO認証とSupabaseへの草稿保存が必要です。Ver.53のロックを解除してください。')
@@ -1035,6 +1050,7 @@ with tab_office:
                         company_memory.save_draft(memory_db, auto_result)
                         company_memory.save_draft(memory_db, preview54['proposed_draft'])
                         st.session_state['v50_result'] = preview54['proposed_draft']
+                        st.session_state['v54_2_restored_id'] = ceo_approval.fingerprint(preview54['proposed_draft'])
                         st.session_state.pop('v54_preview', None)
                         st.session_state.pop('v53_rows', None)
                         st.success('AI修正版を別の草稿IDで保存・再提出しました。CEOによる再審査が必要です。')
