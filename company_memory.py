@@ -21,7 +21,8 @@ def save_draft(db, draft: dict) -> str:
     size = len(json.dumps(payload, ensure_ascii=False).encode('utf-8'))
     if size > MAX_DRAFT_BYTES:
         raise ValueError('草稿が保存上限（約1.5MB）を超えています。')
-    parent_id = ((draft.get('feedback_loop') or {}).get('parent_draft_id_sha256') or None)
+    parent_id = ((draft.get('ai_revision') or {}).get('parent_draft_id_sha256')
+                 or (draft.get('feedback_loop') or {}).get('parent_draft_id_sha256') or None)
     if parent_id == draft_id:
         raise ValueError('草稿IDと親IDが一致しています。')
     row = {'draft_id': draft_id, 'title': str(draft.get('title') or '')[:240],
