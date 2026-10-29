@@ -32,7 +32,7 @@ from supabase import create_client
 
 st.set_page_config(page_title='ZEROBOARD AI', page_icon='🧠', layout='wide')
 st.title('🧠 ZEROBOARD AI')
-st.caption('AI経営会議システム / Ver.54 AI REVISION AGENT / COMPANY MEMORY / FEEDBACK LOOP / CEO APPROVAL DESK / AUTO WORKFLOW / PROFIT FIRST')
+st.caption('AI経営会議システム / Ver.54.1 AI REVISION AGENT / COMPANY MEMORY / FEEDBACK LOOP / CEO APPROVAL DESK / AUTO WORKFLOW / PROFIT FIRST')
 st.write('あなたがCEO。4人のAI役員が議論し、最後に議長AIが経営判断をまとめます。')
 st.divider()
 client = OpenAI(api_key=st.secrets['OPENAI_API_KEY'])
@@ -990,7 +990,7 @@ with tab_office:
                     st.caption('旧草稿へのCEO判断記録は残ります。修正版は自動承認されません。')
     if auto_result:
         st.divider()
-        st.subheader('🤖 Ver.54 AI REVISION AGENT — CEO指示をAIが編集（有料API・試作）')
+        st.subheader('🤖 Ver.54.1 AI REVISION AGENT — CEO指示をAIが編集（有料API・試作）')
         st.caption('CEOの明示操作でOpenAI APIを1回呼び出します。料金が発生する可能性があります。月額上限を保証する機能ではありません。外部公開・販売・自動承認なし。')
         if memory_db is None:
             st.warning('Ver.54はCEO認証とSupabaseへの草稿保存が必要です。Ver.53のロックを解除してください。')
@@ -1001,7 +1001,7 @@ with tab_office:
             default_rev54 = recent_rev54[-1].get('reason', '') if recent_rev54 else ''
             instruction54 = st.text_area('CEOの自由な修正指示（8〜2000文字）',
                 value=default_rev54, max_chars=2000, key='v54_instruction', height=110)
-            st.info('モデル：gpt-5-mini ／ 1操作につきAPIリクエスト1回 ／ 出力上限4500トークン。入力・出力トークンに応じて従量課金。具体的な円額や月間使用上限はここでは保証できません。')
+            st.info('モデル：gpt-5-mini ／ 1操作につきAPIリクエスト1回 ／ 出力上限7000トークン。入力・出力トークンに応じて従量課金。具体的な円額や月間使用上限はここでは保証できません。')
             agree54 = st.checkbox('この1回の有料API呼び出しを承認する。生成内容は未承認草稿としてCEOが確認する。', key='v54_agree')
             if st.button('🤖 AIに1回だけ修正案を作らせる（有料API）', key='v54_execute', disabled=not agree54):
                 try:
