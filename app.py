@@ -23,6 +23,7 @@ import auto_workflow
 import ceo_approval
 import feedback_loop
 import company_memory
+import ai_revision_agent
 import hmac
 import streamlit as st
 import streamlit.components.v1 as components
@@ -31,7 +32,7 @@ from supabase import create_client
 
 st.set_page_config(page_title='ZEROBOARD AI', page_icon='🧠', layout='wide')
 st.title('🧠 ZEROBOARD AI')
-st.caption('AI経営会議システム / Ver.53 COMPANY MEMORY / FEEDBACK LOOP / CEO APPROVAL DESK / AUTO WORKFLOW / PROFIT FIRST')
+st.caption('AI経営会議システム / Ver.54 AI REVISION AGENT / COMPANY MEMORY / FEEDBACK LOOP / CEO APPROVAL DESK / AUTO WORKFLOW / PROFIT FIRST')
 st.write('あなたがCEO。4人のAI役員が議論し、最後に議長AIが経営判断をまとめます。')
 st.divider()
 client = OpenAI(api_key=st.secrets['OPENAI_API_KEY'])
@@ -987,6 +988,60 @@ with tab_office:
                         st.success('修正版を別の草稿として再提出しました。Ver.51で新しい草稿IDを確認して再審査してください。')
                         st.rerun()
                     st.caption('旧草稿へのCEO判断記録は残ります。修正版は自動承認されません。')
+    if auto_result:
+        st.divider()
+        st.subheader('🤖 Ver.54 AI REVISION AGENT — CEO指示をAIが編集（有料API・試作）')
+        st.caption('CEOの明示操作でOpenAI APIを1回呼び出します。料金が発生する可能性があります。月額上限を保証する機能ではありません。外部公開・販売・自動承認なし。')
+        if memory_db is None:
+            st.warning('Ver.54はCEO認証とSupabaseへの草稿保存が必要です。Ver.53のロックを解除してください。')
+        else:
+            recent_rev54 = [r for r in st.session_state.get('v51_decisions', [])
+                            if r.get('decision') == 'revise'
+                            and r.get('draft_id_sha256') == ceo_approval.fingerprint(auto_result)]
+            default_rev54 = recent_rev54[-1].get('reason', '') if recent_rev54 else ''
+            instruction54 = st.text_area('CEOの自由な修正指示（8〜2000文字）',
+                value=default_rev54, max_chars=2000, key='v54_instruction', height=110)
+            st.info('モデル：gpt-5-mini ／ 1操作につきAPIリクエスト1回 ／ 出力上限4500トークン。入力・出力トークンに応じて従量課金。具体的な円額や月間使用上限はここでは保証できません。')
+            agree54 = st.checkbox('この1回の有料API呼び出しを承認する。生成内容は未承認草稿としてCEOが確認する。', key='v54_agree')
+            if st.button('🤖 AIに1回だけ修正案を作らせる（有料API）', key='v54_execute', disabled=not agree54):
+                try:
+                    with st.spinner('AIが修正案を作成しています（この操作でAPIを1回呼び出します）...'):
+                        result54 = ai_revision_agent.revise(client, auto_result, instruction54)
+                    st.session_state['v54_preview'] = result54
+                    st.success('AI修正案ができました。未承認のまま内容を確認してください。')
+                except Exception as exc:
+                    st.error('AI修正案の作成に失敗しました。リクエストがAPIに届いていれば料金が発生する場合があります。')
+                    st.caption(str(exc))
+            current54 = ceo_approval.fingerprint(auto_result)
+            preview54 = st.session_state.get('v54_preview')
+            if preview54 and (preview54.get('parent_draft_id') != current54 or preview54.get('instruction') != instruction54.strip()):
+                st.session_state.pop('v54_preview', None)
+                preview54 = None
+            if preview54:
+                st.success('AI修正案（未承認・未公開）を表示中です。')
+                left54, right54 = st.columns(2)
+                left54.metric('修正前の簡易指摘', preview54['before_findings'])
+                right54.metric('修正後の簡易指摘', preview54['after_findings'])
+                usage54 = preview54.get('usage') or {}
+                st.caption('API使用量：入力 '+str(usage54.get('input_tokens') or '不明')+' ／ 出力 '+str(usage54.get('output_tokens') or '不明')+' トークン。指摘件数は販売品質の保証ではありません。')
+                with st.expander('🔍 教材本文の変更差分', expanded=True):
+                    st.code(preview54['diff'] or '教材本文の変更なし（他の項目に変更がある場合があります）', language='diff')
+                with st.expander('📖 AIの修正版全文（教材・プロンプト・作例）'):
+                    for part54, label54 in [('guide','教材'),('prompt','プロンプト'),('example','作例')]:
+                        st.text_area(label54, preview54['proposed_draft']['final_text'][part54], height=230, key='v54_show_'+part54)
+                st.warning('事実確認・利用許諾・実需・実用性は未検証です。全文を確認してから再提出してください。')
+                if st.button('📋 AI修正版を新しい未承認草稿としてSupabaseに保存・再提出', key='v54_submit'):
+                    try:
+                        company_memory.save_draft(memory_db, auto_result)
+                        company_memory.save_draft(memory_db, preview54['proposed_draft'])
+                        st.session_state['v50_result'] = preview54['proposed_draft']
+                        st.session_state.pop('v54_preview', None)
+                        st.session_state.pop('v53_rows', None)
+                        st.success('AI修正版を別の草稿IDで保存・再提出しました。CEOによる再審査が必要です。')
+                        st.rerun()
+                    except Exception as exc:
+                        st.error('DB保存に失敗しました。再提出は行っていません。')
+                        st.caption(str(exc))
     st.divider()
     st.subheader('🔭 Ver.37 EVIDENCE SCOUT — 競合・購入根拠の選別（API不要）')
     st.caption('最近の保存済み市場調査から別の候補を比較。スコアは企画情報の充実度で、販売確率ではありません。購買根拠のない候補を制作承認しません。')
