@@ -8,7 +8,7 @@ import ceo_approval
 import quality_control
 
 MODEL = 'gpt-5-mini'
-MAX_OUTPUT_TOKENS = 4500
+MAX_OUTPUT_TOKENS = 7000
 MAX_INPUT_CHARS = 15500
 MAX_SECTION_CHARS = 12500
 
@@ -44,26 +44,49 @@ def revise(client, draft: dict, instruction: str) -> dict:
         '個人の実体験、販売実績、市場検証、第三者の評判、著作権許諾を捏造しない。'
         '根拠のない事実は確認待ちとして示す。公開済み・販売可・品質保証などと断定しない。'
         '元の7日間の構成、題名、基本目的を尊重する。必要な箇所だけ修正する。'
-        'JSONオブジェクト1個だけを返す。キーは guide, prompt, example, changes。'
-        '前3者は全文の文字列、changesは具体的な修正点の文字列配列（最大8件）。'
-        'Markdownコードフェンスは付けない。'
+        'JSONオブジェクトだけを返す。キーは guide, prompt, example, changes。'
+        '前3者は変更したセクションだけ全文を返す。変更しないセクションはnullを返す。'
+        'changesは具体的な修正点の配列（最大8件）。冗長な説明を避ける。'
+        '元文章をそのまま再出力してトークンを浪費しない。'
     )
+    section_schema = {'type': ['string', 'null']}
+    schema = {
+        'type': 'object', 'additionalProperties': False,
+        'properties': {
+            'guide': section_schema, 'prompt': section_schema, 'example': section_schema,
+            'changes': {'type': 'array', 'items': {'type': 'string'}},
+        },
+        'required': ['guide', 'prompt', 'example', 'changes'],
+    }
     response = client.responses.create(
         model=MODEL,
         instructions=instructions,
         input=json.dumps(request_data, ensure_ascii=False),
+        reasoning={'effort': 'low'},
+        text={'format': {'type': 'json_schema', 'name': 'ceo_revision_patch',
+                         'schema': schema, 'strict': True}},
         max_output_tokens=MAX_OUTPUT_TOKENS,
     )
     raw = (getattr(response, 'output_text', '') or '').strip()
+    if getattr(response, 'status', None) == 'incomplete':
+        details = getattr(response, 'incomplete_details', None)
+        reason = getattr(details, 'reason', None) or 'unknown'
+        raise ValueError('AIの出力が途中で終了しました（' + str(reason) + '）。未採用です。再実行は追加課金の可能性があるため、自動再試行しません。')
+    if not raw:
+        raise ValueError('AIの応答本文が空です。未採用のまま停止します。')
     try:
         candidate = json.loads(raw)
     except json.JSONDecodeError as exc:
-        raise ValueError('AIの応答がJSON形式ではありませんでした。未採用のまま停止します。') from exc
+        raise ValueError('AIの応答がJSON形式ではありませんでした。未採用のまま停止します（自動再試行なし）。') from exc
     if not isinstance(candidate, dict):
         raise ValueError('AIの出力が不正です。')
     revised = {}
     for key in ('guide', 'prompt', 'example'):
         value = candidate.get(key)
+        # null means this part remains unchanged: don't charge tokens to echo it.
+        if value is None:
+            revised[key] = before[key]
+            continue
         if not isinstance(value, str) or not (40 <= len(value.strip()) <= MAX_SECTION_CHARS):
             raise ValueError('AIの出力が空、または制限超過です：' + key)
         revised[key] = value
