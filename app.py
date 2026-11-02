@@ -26,6 +26,7 @@ import company_memory
 import ai_revision_agent
 import quality_improvement
 import quality_issue_desk
+import research_agent_v57
 import hmac
 import streamlit as st
 import streamlit.components.v1 as components
@@ -34,7 +35,7 @@ from supabase import create_client
 
 st.set_page_config(page_title='ZEROBOARD AI', page_icon='🧠', layout='wide')
 st.title('🧠 ZEROBOARD AI')
-st.caption('AI経営会議システム / Ver.56 QUALITY ISSUE DESK / AI QUALITY IMPROVEMENT / AI REVISION AGENT / COMPANY MEMORY / FEEDBACK LOOP / CEO APPROVAL DESK / AUTO WORKFLOW / PROFIT FIRST')
+st.caption('AI経営会議システム / Ver.57 AI RESEARCH AGENT / Ver.56 QUALITY ISSUE DESK / AI QUALITY IMPROVEMENT / AI REVISION AGENT / COMPANY MEMORY / FEEDBACK LOOP / CEO APPROVAL DESK / AUTO WORKFLOW / PROFIT FIRST')
 st.write('あなたがCEO。4人のAI役員が議論し、最後に議長AIが経営判断をまとめます。')
 st.divider()
 client = OpenAI(api_key=st.secrets['OPENAI_API_KEY'])
@@ -1184,6 +1185,72 @@ with tab_office:
                     st.caption('草稿ID：'+did56[:12]+'｜改善後の別草稿には別の確認記録を付けます。旧草稿の履歴は上書きしません。')
             except Exception as exc:
                 st.error('Ver.56を読み込めませんでした。Supabaseに setup_quality_issue_desk.sql を実行したか確認してください。')
+                st.caption(str(exc))
+    if auto_result:
+        st.divider()
+        st.subheader('🔎 Ver.57 AI RESEARCH AGENT — 公開Web根拠を調査（有料API）')
+        st.caption('CEOが選んだ品質指摘を1件だけWeb検索で調べ、URLと未確認事項を提示します。検索ツール自体にも従量料金が発生し、APIリクエスト1回でも検索が複数回になる場合があります。自動承認・販売・公開・品質解決判定なし。')
+        if memory_db is None:
+            st.warning('Ver.53のCEO認証が必要です。')
+        else:
+            try:
+                inventory57 = quality_issue_desk.inventory(auto_result)
+                draftid57 = ceo_approval.fingerprint(auto_result)
+                if inventory57:
+                    index57 = st.selectbox('Web調査する品質指摘（1件）',range(len(inventory57)),
+                        format_func=lambda i: ('根拠確認：' if inventory57[i]['kind']=='human_evidence' else '文章改善：') + inventory57[i]['issue'],key='v57_issue_pick')
+                    item57 = inventory57[index57]
+                    st.info('調査対象：'+item57['issue']+' ／ まだ根拠確認済みにはなりません。')
+                    consent57 = st.checkbox('この1回の有料Web検索付きAPI処理を承認する（料金上限は保証されない）', key='v57_consent')
+                    if st.button('🔎 AIにWeb調査を1回依頼する（有料）', key='v57_run', disabled=not consent57):
+                        try:
+                            with st.spinner('公開Webを調査中（有料APIリクエスト1回）...'):
+                                result57 = research_agent_v57.research(client,item57,str(auto_result.get('title') or '教材'))
+                            st.session_state['v57_preview'] = result57
+                            st.success('調査レポートを作成しました。出典・事実の検証はまだです。')
+                        except Exception as exc:
+                            st.session_state.pop('v57_preview',None)
+                            st.error('Web調査に失敗しました。実行済みの検索・トークンには料金が発生する場合があります。自動再試行しません。')
+                            st.caption(str(exc))
+                    preview57 = st.session_state.get('v57_preview')
+                    if preview57 and (preview57['draft_id']!=draftid57 or preview57['issue_id']!=item57['issue_id']):
+                        st.session_state.pop('v57_preview',None)
+                        preview57 = None
+                    if preview57:
+                        st.warning('AIが検索結果を要約した未検証レポートです。参考URLと内容をCEOが確認してください。')
+                        st.write(preview57['report_text'])
+                        st.write('**参照元URL（クリックして原文確認）**')
+                        for k57,s57 in enumerate(preview57['sources'],1):
+                            st.markdown(f"{k57}. [{s57['title']}]({s57['url']})")
+                        st.caption('調査UTC日時：'+preview57['researched_at_utc']+' ／ モデル：'+preview57['model']+
+                            ' ／ Web検索呼出し項目：'+str(preview57['web_search_calls'])+'（実際の課金回数とは必ずしも一致しません）')
+                        st.caption('入力トークン：'+str(preview57.get('input_tokens') or '不明')+' ／ 出力トークン：'+str(preview57.get('output_tokens') or '不明'))
+                        if st.button('💾 未検証の調査レポートとしてSupabaseに保存',key='v57_save'):
+                            try:
+                                company_memory.save_draft(memory_db,auto_result)
+                                research_agent_v57.save(memory_db,preview57)
+                                st.session_state.pop('v57_preview',None)
+                                st.session_state.pop('v57_loaded_'+draftid57,None)
+                                st.success('CEO確認待ちの調査レポートとして保存しました。Ver.56の状態は変更していません。')
+                            except Exception as exc:
+                                st.error('調査レポートを保存できませんでした。SQL・権限を確認してください。')
+                                st.caption(str(exc))
+                else:
+                    st.info('現在の草稿に簡易品質指摘がないため、Ver.57の調査対象はありません。')
+                if st.button('📚 この草稿の保存済み調査レポートを読み込む',key='v57_load_'+draftid57[:12]):
+                    st.session_state['v57_loaded_'+draftid57]=research_agent_v57.list_reports(memory_db,draftid57)
+                reports57=st.session_state.get('v57_loaded_'+draftid57)
+                if reports57 is not None:
+                    if not reports57: st.info('保存された調査レポートはまだありません。')
+                    for rr57 in reports57:
+                        with st.expander(str(rr57.get('researched_at_utc',''))[:16]+'｜'+str(rr57.get('issue',''))[:90]):
+                            st.warning('CEO確認待ち／未検証。Ver.56を自動で「確認済み」にはしません。')
+                            st.write(rr57['report_text'])
+                            for s57 in (rr57.get('sources') or []):
+                                if research_agent_v57._safe_url(s57.get('url')):
+                                    st.markdown('・['+str(s57.get('title') or '出典')+']('+s57['url']+')')
+            except Exception as exc:
+                st.error('Ver.57を表示できませんでした。保存テーブルのSQLや接続を確認してください。')
                 st.caption(str(exc))
     st.divider()
     st.subheader('🔭 Ver.37 EVIDENCE SCOUT — 競合・購入根拠の選別（API不要）')
