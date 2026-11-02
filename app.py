@@ -24,6 +24,7 @@ import ceo_approval
 import feedback_loop
 import company_memory
 import ai_revision_agent
+import quality_improvement
 import hmac
 import streamlit as st
 import streamlit.components.v1 as components
@@ -32,7 +33,7 @@ from supabase import create_client
 
 st.set_page_config(page_title='ZEROBOARD AI', page_icon='🧠', layout='wide')
 st.title('🧠 ZEROBOARD AI')
-st.caption('AI経営会議システム / Ver.54.1 AI REVISION AGENT / COMPANY MEMORY / FEEDBACK LOOP / CEO APPROVAL DESK / AUTO WORKFLOW / PROFIT FIRST')
+st.caption('AI経営会議システム / Ver.55 AI QUALITY IMPROVEMENT / AI REVISION AGENT / COMPANY MEMORY / FEEDBACK LOOP / CEO APPROVAL DESK / AUTO WORKFLOW / PROFIT FIRST')
 st.write('あなたがCEO。4人のAI役員が議論し、最後に議長AIが経営判断をまとめます。')
 st.divider()
 client = OpenAI(api_key=st.secrets['OPENAI_API_KEY'])
@@ -1058,6 +1059,73 @@ with tab_office:
                     except Exception as exc:
                         st.error('DB保存に失敗しました。再提出は行っていません。')
                         st.caption(str(exc))
+    if auto_result:
+        st.divider()
+        st.subheader('🧪 Ver.55 AI QUALITY IMPROVEMENT — 品質指摘から改善（有料API・試作）')
+        st.caption('文章で修正できる指摘だけをAIに渡します。権利・競合・販売需要などは人間の根拠確認が必要です。CEOの明示承認でAPIを1回のみ呼び出し、自動リトライ・連続修正・公開・販売はしません。')
+        if memory_db is None:
+            st.warning('利用にはVer.53のCEO認証が必要です。')
+        else:
+            try:
+                plan55 = quality_improvement.triage(auto_result)
+                st.write('**現在の簡易品質検査：**', str(len(plan55['review']['findings'])) + '件')
+                st.caption('この検査は語句・構成に基づく簡易チェックです。件数減少は品質保証ではありません。')
+                if plan55['human']:
+                    with st.expander('🧑 人間による確認が必要（AIで解消扱いにしない）'):
+                        for item55 in plan55['human']:
+                            st.write('・' + item55['issue'])
+                            st.caption(item55['action'])
+                options55 = [f['issue'] for f in plan55['fixable']]
+                selected55 = st.multiselect('AIに改善させる指摘（最大8件）', options=options55,
+                    default=options55[:min(len(options55), 4)], max_selections=8, key='v55_targets')
+                st.info('モデル：gpt-5-mini ／ 1操作につき有料API呼び出し1回 ／ 出力上限7000トークン。金額・月額上限は保証できません。')
+                consent55 = st.checkbox('選んだ指摘について有料APIを1回実行することを承認する（自動承認・公開なし）', key='v55_consent')
+                if st.button('🧪 AIに品質改善案を1回作らせる（有料API）', key='v55_run', disabled=not (consent55 and selected55)):
+                    try:
+                        with st.spinner('改善案を作成中（APIは1回のみ）...'):
+                            result55 = quality_improvement.improve(client, auto_result, selected55)
+                        st.session_state['v55_preview'] = result55
+                        st.success('改善案を生成しました。未承認・未公開です。')
+                    except Exception as exc:
+                        st.error('品質改善案を作成できませんでした。APIへ送信済みなら料金が発生する可能性があります。自動再試行はしません。')
+                        st.caption(str(exc))
+                preview55 = st.session_state.get('v55_preview')
+                current55 = ceo_approval.fingerprint(auto_result)
+                if preview55 and preview55.get('parent_draft_id') != current55:
+                    st.session_state.pop('v55_preview', None)
+                    preview55 = None
+                if preview55:
+                    st.success('AI品質改善案（未承認・未公開）')
+                    col551, col552 = st.columns(2)
+                    col551.metric('改善前の簡易指摘', preview55['before_findings'])
+                    col552.metric('改善後の簡易指摘', preview55['after_findings'])
+                    usage55 = preview55.get('usage') or {}
+                    st.caption('API使用量：入力 ' + str(usage55.get('input_tokens') or '不明') + ' ／ 出力 ' + str(usage55.get('output_tokens') or '不明') + ' トークン')
+                    with st.expander('🔍 教材本文の変更差分', expanded=True):
+                        st.code(preview55['diff'] or '教材本文の変更なし（別セクションは全文で確認）', language='diff')
+                    with st.expander('📖 改善後の全文（教材・プロンプト・作例）'):
+                        for part55, label55 in [('guide','教材'),('prompt','プロンプト'),('example','作例')]:
+                            st.text_area(label55, value=preview55['proposed_draft']['final_text'][part55],
+                                height=220, disabled=True, key='v55_view_'+part55)
+                    with st.expander('🧾 再検査後に残っている指摘'):
+                        for f55 in preview55['remaining_findings']:
+                            st.write('・[' + f55['level'] + '] ' + f55['issue'])
+                    st.warning('競合・権利・需要・実用性などは別途検証が必要です。件数だけで販売承認はできません。')
+                    if st.button('💾 改善案を新しい未承認草稿としてSupabase保存・CEO再提出', key='v55_submit'):
+                        try:
+                            company_memory.save_draft(memory_db, auto_result)
+                            company_memory.save_draft(memory_db, preview55['proposed_draft'])
+                            st.session_state['v50_result'] = preview55['proposed_draft']
+                            st.session_state.pop('v55_preview', None)
+                            st.session_state.pop('v53_rows', None)
+                            st.success('新しい草稿として保存しました。CEO再審査待ちで、公開・販売はしていません。')
+                            st.rerun()
+                        except Exception as exc:
+                            st.error('Supabaseへの保存に失敗しました。再提出していません。')
+                            st.caption(str(exc))
+            except Exception as exc:
+                st.error('Ver.55の品質確認を開始できませんでした。')
+                st.caption(str(exc))
     st.divider()
     st.subheader('🔭 Ver.37 EVIDENCE SCOUT — 競合・購入根拠の選別（API不要）')
     st.caption('最近の保存済み市場調査から別の候補を比較。スコアは企画情報の充実度で、販売確率ではありません。購買根拠のない候補を制作承認しません。')
