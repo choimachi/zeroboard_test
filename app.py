@@ -25,6 +25,7 @@ import feedback_loop
 import company_memory
 import ai_revision_agent
 import quality_improvement
+import quality_issue_desk
 import hmac
 import streamlit as st
 import streamlit.components.v1 as components
@@ -33,7 +34,7 @@ from supabase import create_client
 
 st.set_page_config(page_title='ZEROBOARD AI', page_icon='🧠', layout='wide')
 st.title('🧠 ZEROBOARD AI')
-st.caption('AI経営会議システム / Ver.55 AI QUALITY IMPROVEMENT / AI REVISION AGENT / COMPANY MEMORY / FEEDBACK LOOP / CEO APPROVAL DESK / AUTO WORKFLOW / PROFIT FIRST')
+st.caption('AI経営会議システム / Ver.56 QUALITY ISSUE DESK / AI QUALITY IMPROVEMENT / AI REVISION AGENT / COMPANY MEMORY / FEEDBACK LOOP / CEO APPROVAL DESK / AUTO WORKFLOW / PROFIT FIRST')
 st.write('あなたがCEO。4人のAI役員が議論し、最後に議長AIが経営判断をまとめます。')
 st.divider()
 client = OpenAI(api_key=st.secrets['OPENAI_API_KEY'])
@@ -1125,6 +1126,64 @@ with tab_office:
                             st.caption(str(exc))
             except Exception as exc:
                 st.error('Ver.55の品質確認を開始できませんでした。')
+                st.caption(str(exc))
+    if auto_result:
+        st.divider()
+        st.subheader('📋 Ver.56 QUALITY ISSUE DESK — 未解決事項と調査・確認の記録（API不要）')
+        st.caption('草稿ごとの簡易検査指摘を整理し、確認状況と根拠をSupabaseへ記録します。AIによる外部調査、品質保証、公開、販売、API実行は行いません。')
+        if memory_db is None:
+            st.warning('Ver.53でCEO認証後に利用できます。')
+        else:
+            try:
+                items56 = quality_issue_desk.inventory(auto_result)
+                did56 = ceo_approval.fingerprint(auto_result)
+                cachekey56 = 'v56_records_'+did56
+                if st.button('🔄 この草稿の確認記録を読み込む', key='v56_load_'+did56[:12]):
+                    st.session_state[cachekey56] = quality_issue_desk.list_records(memory_db, did56)
+                if cachekey56 not in st.session_state:
+                    st.info('まず「確認記録を読み込む」を押してな。読み込みだけではデータを変更しません。')
+                else:
+                    saved56 = {r['issue_id']: r for r in st.session_state[cachekey56]}
+                    human56 = sum(i['kind']=='human_evidence' for i in items56)
+                    editorial56 = len(items56)-human56
+                    c561,c562,c563 = st.columns(3)
+                    c561.metric('今回の指摘',len(items56))
+                    c562.metric('原資料・CEO確認が必要',human56)
+                    c563.metric('文章・手順の改善候補',editorial56)
+                    if not items56:
+                        st.info('簡易ルールでの指摘は0件。ただし実際の品質・権利・需要が保証されたわけではありません。')
+                    for n56,item56 in enumerate(items56,1):
+                        row56 = saved56.get(item56['issue_id']) or {}
+                        label56 = ('🧑 根拠確認が必要' if item56['kind']=='human_evidence' else '✍️ 文章・手順の改善候補')
+                        with st.expander(f"{n56}. {label56}｜{item56['issue']}｜{quality_issue_desk.STATES.get(row56.get('status'),'未記録')}"):
+                            st.write('**簡易検査の根拠：**',item56['evidence'] or '記載なし')
+                            st.write('**推奨対応：**',item56['suggested_action'])
+                            st.caption(quality_issue_desk.evidence_hint(item56))
+                            if item56['kind']=='human_evidence':
+                                st.warning('この項目は文章を改善しただけでは解消しません。出典・権利・再現性などの実物確認が必要です。')
+                            with st.form('v56_form_'+item56['issue_id'][:16]):
+                                old56 = row56.get('status','open')
+                                status56 = st.selectbox('対応状況',list(quality_issue_desk.STATES),
+                                    index=list(quality_issue_desk.STATES).index(old56) if old56 in quality_issue_desk.STATES else 0,
+                                    format_func=lambda x:quality_issue_desk.STATES[x])
+                                note56 = st.text_area('確認内容・調査結果・URL・次の作業（公開画面には表示されません）',
+                                    value=row56.get('note') or '', max_chars=2000, height=95)
+                                confirm56 = st.checkbox('この内容と根拠をCEOが確認した（根拠確認済み・対象外で必須）',
+                                    value=bool(row56.get('confirmed_by_ceo',False)))
+                                submit56 = st.form_submit_button('💾 この指摘の状況をSupabaseに記録（API不要）')
+                            if submit56:
+                                try:
+                                    company_memory.save_draft(memory_db,auto_result)
+                                    quality_issue_desk.save_record(memory_db,item56,status56,note56,confirm56)
+                                    st.session_state[cachekey56] = quality_issue_desk.list_records(memory_db,did56)
+                                    st.success('記録しました。これはCEOの確認メモであり、システムによる事実検証ではありません。')
+                                    st.rerun()
+                                except Exception as exc:
+                                    st.error('記録できませんでした。SQL・権限・メモの入力内容を確認してください。')
+                                    st.caption(str(exc))
+                    st.caption('草稿ID：'+did56[:12]+'｜改善後の別草稿には別の確認記録を付けます。旧草稿の履歴は上書きしません。')
+            except Exception as exc:
+                st.error('Ver.56を読み込めませんでした。Supabaseに setup_quality_issue_desk.sql を実行したか確認してください。')
                 st.caption(str(exc))
     st.divider()
     st.subheader('🔭 Ver.37 EVIDENCE SCOUT — 競合・購入根拠の選別（API不要）')
