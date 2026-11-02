@@ -1,4 +1,4 @@
-"""Ver.57: one CEO-authorized, web-grounded research request per button click.
+"""Ver.57.1: one CEO-authorized, web-grounded research request per button click.
 
 Never marks an issue verified and never publishes; human must inspect sources.
 """
@@ -8,10 +8,10 @@ import json
 import re
 from datetime import datetime, timezone
 from urllib.parse import urlparse
-import uuid
+import uuidaaa
 
 MODEL = 'gpt-5-mini'
-MAX_OUTPUT_TOKENS = 2000
+MAX_OUTPUT_TOKENS = 4500
 
 
 def _safe_url(value):
@@ -38,15 +38,30 @@ def research(client, item, title):
               '\n商品名：'+str(title)[:150]+'\n品質指摘：'+str(item['issue'])[:500]+
               '\n推奨対応：'+str(item.get('suggested_action') or '')[:500])
     response = client.responses.create(
-        model=MODEL,
+        model=MODEL, reasoning={'effort':'low'},
         tools=[{'type':'web_search'}], tool_choice='required',
         include=['web_search_call.action.sources'],
         max_output_tokens=MAX_OUTPUT_TOKENS, input=prompt,
     )
     calls=[x for x in (_get(response,'output') or []) if _get(x,'type')=='web_search_call']
     text=str(_get(response,'output_text') or '').strip()
+    # Some SDK versions do not populate output_text even when the message exists.
+    if not text:
+        text='\n'.join(str(_get(c,'text') or '') for out in (_get(response,'output') or [])
+                       if _get(out,'type')=='message'
+                       for c in (_get(out,'content') or []) if _get(c,'type')=='output_text').strip()
     if not calls or not text:
-        raise ValueError('Web検索の実行または調査本文を確認できませんでした。保存しません。')
+        status=str(_get(response,'status') or 'unknown')
+        incomplete=_get(response,'incomplete_details')
+        reason=str(_get(incomplete,'reason') or 'unknown')
+        typestr=','.join(str(_get(x,'type') or '?') for x in (_get(response,'output') or []))[:120]
+        u=_get(response,'usage')
+        output_t=_get(u,'output_tokens')
+        detail=('検索記録あり' if calls else '検索記録なし')+'／'+('本文あり' if text else '本文なし')
+        raise ValueError('API応答を採用できませんでした（'+detail+'）。'
+                         'status='+status+' / incomplete_reason='+reason+
+                         ' / output_types='+typestr+' / output_tokens='+str(output_t)+
+                         '。再実行せず、この診断表示を確認してください。')
     collected=[]
     for call in calls:
         action=_get(call,'action')
