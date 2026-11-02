@@ -8,7 +8,7 @@ import json
 import re
 from datetime import datetime, timezone
 from urllib.parse import urlparse
-import uuidaaa
+import uuid
 
 MODEL = 'gpt-5-mini'
 MAX_OUTPUT_TOKENS = 4500
