@@ -27,6 +27,7 @@ import ai_revision_agent
 import quality_improvement
 import quality_issue_desk
 import research_agent_v57
+import competitor_analysis_v58
 import hmac
 import streamlit as st
 import streamlit.components.v1 as components
@@ -35,7 +36,7 @@ from supabase import create_client
 
 st.set_page_config(page_title='ZEROBOARD AI', page_icon='🧠', layout='wide')
 st.title('🧠 ZEROBOARD AI')
-st.caption('AI経営会議システム / Ver.57 AI RESEARCH AGENT / Ver.56 QUALITY ISSUE DESK / AI QUALITY IMPROVEMENT / AI REVISION AGENT / COMPANY MEMORY / FEEDBACK LOOP / CEO APPROVAL DESK / AUTO WORKFLOW / PROFIT FIRST')
+st.caption('AI経営会議システム / Ver.58 COMPETITOR ANALYSIS / Ver.57 AI RESEARCH AGENT / Ver.56 QUALITY ISSUE DESK / AI QUALITY IMPROVEMENT / AI REVISION AGENT / COMPANY MEMORY / FEEDBACK LOOP / CEO APPROVAL DESK / AUTO WORKFLOW / PROFIT FIRST')
 st.write('あなたがCEO。4人のAI役員が議論し、最後に議長AIが経営判断をまとめます。')
 st.divider()
 client = OpenAI(api_key=st.secrets['OPENAI_API_KEY'])
@@ -1252,6 +1253,48 @@ with tab_office:
             except Exception as exc:
                 st.error('Ver.57を表示できませんでした。保存テーブルのSQLや接続を確認してください。')
                 st.caption(str(exc))
+    if auto_result:
+        st.divider()
+        st.subheader('📊 Ver.58 COMPETITOR ANALYSIS — 保存済み調査の比較準備（API不要）')
+        st.caption('Ver.57で保存した未検証レポートの参照URLを重複整理します。Webサイトへのアクセス・API呼び出し・自動調査は行いません。')
+        if memory_db is None:
+            st.warning('Ver.53のCEO認証が必要です。')
+        else:
+            did58 = ceo_approval.fingerprint(auto_result)
+            if st.button('📚 保存済みレポートから競合比較候補を作る（API不要）',key='v58_build_'+did58[:12]):
+                try:
+                    rows58 = research_agent_v57.list_reports(memory_db,did58)
+                    st.session_state['v58_result'] = competitor_analysis_v58.build(rows58,str(auto_result.get('title') or '未設定'),did58)
+                except Exception as exc:
+                    st.error('保存済みレポートの取得に失敗しました。Ver.57の保存を確認してください。')
+                    st.caption(str(exc))
+            res58 = st.session_state.get('v58_result')
+            if res58 and res58['draft_id'] == did58:
+                c581,c582,c583=st.columns(3)
+                c581.metric('読み込んだ調査レポート',res58['saved_report_count'])
+                c582.metric('元の参照URL数',res58['raw_source_count'])
+                c583.metric('重複整理後のURL候補',res58['distinct_url_count'])
+                st.warning('これらは「競合の商品」と確認できた件数ではありません。リンクの実在・価格・仕様・掲載内容は未検証です。')
+                st.write('**自社草稿（比較の起点）**')
+                st.table([{'商品':res58['title'],'対象読者':'草稿に記載の仮説','教材内容':'草稿本文を参照',
+                           '価格':'未設定・要確認','差別化':'未検証','販売可否':'未承認'}])
+                if res58['leads']:
+                    st.write('**公開資料の候補一覧（競合と断定しません）**')
+                    st.dataframe([{'資料タイトル':i['title'],'掲載元':i['host'],
+                                   '競合商品':'要確認','価格':'要確認','提供内容':'要確認',
+                                   '照合状況':'原文未確認','URL':i['url']} for i in res58['leads']],
+                                 use_container_width=True,hide_index=True)
+                    st.write('**CEOの原文確認用リンク**')
+                    for index58, lead58 in enumerate(res58['leads'][:30],1):
+                        st.markdown(f"{index58}. [{lead58['host']} — {lead58['title']}]({lead58['url']})")
+                    st.caption('リンク先は調査時の参照候補。実際の記述と一致するか、各ページを開いて確認してな。')
+                else:
+                    st.info('この草稿に保存された参照URLは見つかりませんでした。Ver.57のレポートを同じ草稿IDに保存しているか確認してください。')
+                st.download_button('📥 競合比較チェックシート（CSV）を保存',data=competitor_analysis_v58.csv_bytes(res58),
+                    file_name='zeroboard_ver58_competitor_checklist.csv',mime='text/csv',key='v58_csv')
+                st.download_button('📥 出典候補の整理データ（JSON）を保存',data=competitor_analysis_v58.json_bytes(res58),
+                    file_name='zeroboard_ver58_sources.json',mime='application/json',key='v58_json')
+                st.info('次の作業：CEOが競合の公式販売ページ・商品名・価格・提供内容・確認日を照合すること。差別化はその結果から判断。Ver.56の状態は変更していません。')
     st.divider()
     st.subheader('🔭 Ver.37 EVIDENCE SCOUT — 競合・購入根拠の選別（API不要）')
     st.caption('最近の保存済み市場調査から別の候補を比較。スコアは企画情報の充実度で、販売確率ではありません。購買根拠のない候補を制作承認しません。')
